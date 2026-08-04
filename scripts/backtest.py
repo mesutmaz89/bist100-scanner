@@ -24,6 +24,7 @@ def apply_indicators(df):
     elif hasattr(indicators, "add_indicators"):
         return indicators.add_indicators(df)
     else:
+        # Manuel gösterge ekleme (varsayılan)
         if hasattr(indicators, "add_rsi"): df = indicators.add_rsi(df)
         if hasattr(indicators, "add_macd"): df = indicators.add_macd(df)
         if hasattr(indicators, "add_adx"): df = indicators.add_adx(df)
@@ -32,19 +33,51 @@ def apply_indicators(df):
         return df
 
 
-def run_decision_engine(df):
-    """decision_engine.py içindeki analiz fonksiyonunu dinamik olarak bulur ve çalıştırır."""
-    if hasattr(decision_engine, "evaluate_stock"):
-        return decision_engine.evaluate_stock(df)
-    elif hasattr(decision_engine, "evaluate"):
-        return decision_engine.evaluate(df)
-    elif hasattr(decision_engine, "analyze_stock"):
-        return decision_engine.analyze_stock(df)
-    elif hasattr(decision_engine, "analyze"):
-        return decision_engine.analyze(df)
-    elif hasattr(decision_engine, "generate_signal"):
-        return decision_engine.generate_signal(df)
-    return None
+def parse_row_to_indicators_dict(sub_df):
+    """DataFrame'in son satırını decision_engine'in beklediği dict formatına dönüştürür."""
+    if len(sub_df) < 2:
+        return None
+
+    row = sub_df.iloc[-1]
+    prev_row = sub_df.iloc[-2]
+
+    close = float(row.get("Close", 0))
+    ema50 = float(row.get("EMA_50", row.get("ema50", 0)))
+    ema200 = float(row.get("EMA_200", row.get("ema200", 0)))
+    adx14 = float(row.get("ADX_14", row.get("adx14", 25)))  # Varsayılan trend gücü
+    rsi14 = float(row.get("RSI_14", row.get("rsi14", 50)))
+    
+    macd_hist = float(row.get("MACDh_12_26_9", row.get("macd_hist", 0)))
+    macd_hist_prev = float(prev_row.get("MACDh_12_26_9", prev_row.get("macd_hist", 0)))
+
+    volume = float(row.get("Volume", 0))
+    vol_sma = float(row.get("Volume_SMA_20", sub_df["Volume"].tail(20).mean()))
+    obv = float(row.get("OBV", 0))
+    obv_prev = float(prev_row.get("OBV", 0))
+
+    atr14 = float(row.get("ATRr_14", row.get("atr14", close * 0.02)))  # Yoksa %2 varsayılan
+
+    return {
+        "close": close,
+        "trend": {
+            "price_above_ema50": close > ema50 if ema50 > 0 else True,
+            "ema50_above_ema200": ema50 > ema200 if (ema50 > 0 and ema200 > 0) else True,
+            "adx14": adx14
+        },
+        "momentum": {
+            "rsi14": rsi14,
+            "macd_hist": macd_hist,
+            "macd_hist_prev": macd_hist_prev,
+            "bearish_rsi_divergence": False
+        },
+        "volume": {
+            "above_avg": volume > vol_sma if vol_sma > 0 else True,
+            "obv_rising": obv > obv_prev
+        },
+        "volatility": {
+            "atr14": atr14
+        }
+    }
 
 
 def load_watchlist():
@@ -56,7 +89,6 @@ def load_watchlist():
     if not raw_tickers:
         raw_tickers = ["THYAO.IS", "GARAN.IS", "ASELS.IS", "EREGL.IS", "AKBNK.IS"]
     
-    # BIST sembollerinin sonuna .IS eklenmesini garantiye alıyoruz
     formatted_tickers = []
     for t in raw_tickers:
         t = t.strip().upper()
@@ -99,13 +131,15 @@ def run_backtest(period="1y"):
                 current_low = float(current_bar["Low"])
 
                 if not in_position:
-                    sig = run_decision_engine(sub_df)
-                    if sig and sig.get("direction") in ["long", "short"]:
-                        in_position = True
-                        direction = sig["direction"]
-                        entry_price = sig.get("entry", current_bar["Close"])
-                        stop_loss = sig.get("stop_loss", 0.0)
-                        take_profit = sig.get("take_profit", 0.0)
+                    ind_dict = parse_row_to_indicators_dict(sub_df)
+                    if ind_dict:
+                        sig = decision_engine.build_signal(ticker, ind_dict)
+                        if sig and sig.get("direction") in ["long", "short"]:
+                            in_position = True
+                            direction = sig["direction"]
+                            entry_price = sig.get("entry", current_bar["Close"])
+                            stop_loss = sig.get("stop_loss", 0.0)
+                            take_profit = sig.get("take_profit", 0.0)
                 else:
                     trade_closed = False
                     profit_pct = 0.0
