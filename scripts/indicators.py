@@ -6,14 +6,17 @@ Girdi: pandas DataFrame (columns: Open, High, Low, Close, Volume)
 """
 
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
+from ta.trend import EMAIndicator, ADXIndicator, MACD
+from ta.momentum import RSIIndicator
+from ta.volatility import AverageTrueRange, BollingerBands
+from ta.volume import OnBalanceVolumeIndicator
 
 
 def compute_indicators(df: pd.DataFrame) -> dict:
     """
     df: en az 210 barlık günlük OHLCV verisi (EMA200 için yeterli geçmiş gerekir)
-    Dönen dict: Claude'a gönderilecek özet göstergeler
+    Dönen dict: Özet göstergeler
     """
     if df is None or len(df) < 60:
         return None
@@ -22,30 +25,33 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     df.columns = [c.capitalize() for c in df.columns]
 
     # --- Trend ---
-    df["EMA20"] = ta.ema(df["Close"], length=20)
-    df["EMA50"] = ta.ema(df["Close"], length=50)
-    df["EMA200"] = ta.ema(df["Close"], length=200) if len(df) >= 200 else np.nan
+    df["EMA20"] = EMAIndicator(close=df["Close"], window=20).ema_indicator()
+    df["EMA50"] = EMAIndicator(close=df["Close"], window=50).ema_indicator()
+    df["EMA200"] = EMAIndicator(close=df["Close"], window=200).ema_indicator() if len(df) >= 200 else np.nan
 
-    adx = ta.adx(df["High"], df["Low"], df["Close"], length=14)
-    df["ADX14"] = adx["ADX_14"] if adx is not None else np.nan
+    adx_ind = ADXIndicator(high=df["High"], low=df["Low"], close=df["Close"], window=14)
+    df["ADX14"] = adx_ind.adx()
 
     # --- Momentum ---
-    df["RSI14"] = ta.rsi(df["Close"], length=14)
-    macd = ta.macd(df["Close"], fast=12, slow=26, signal=9)
-    df["MACD"] = macd["MACD_12_26_9"]
-    df["MACD_SIGNAL"] = macd["MACDs_12_26_9"]
-    df["MACD_HIST"] = macd["MACDh_12_26_9"]
+    df["RSI14"] = RSIIndicator(close=df["Close"], window=14).rsi()
+    
+    macd_ind = MACD(close=df["Close"], window_slow=26, window_fast=12, window_sign=9)
+    df["MACD"] = macd_ind.macd()
+    df["MACD_SIGNAL"] = macd_ind.macd_signal()
+    df["MACD_HIST"] = macd_ind.macd_diff()
 
     # --- Volatilite ---
-    df["ATR14"] = ta.atr(df["High"], df["Low"], df["Close"], length=14)
-    bb = ta.bbands(df["Close"], length=20, std=2)
-    df["BB_UPPER"] = bb["BBU_20_2.0"]
-    df["BB_LOWER"] = bb["BBL_20_2.0"]
+    df["ATR14"] = AverageTrueRange(high=df["High"], low=df["Low"], close=df["Close"], window=14).average_true_range()
+    
+    bb_ind = BollingerBands(close=df["Close"], window=20, window_dev=2)
+    df["BB_UPPER"] = bb_ind.bollinger_hband()
+    df["BB_LOWER"] = bb_ind.bollinger_lband()
     df["BB_WIDTH"] = (df["BB_UPPER"] - df["BB_LOWER"]) / df["Close"]
 
     # --- Hacim ---
     df["VOL_AVG20"] = df["Volume"].rolling(20).mean()
-    df["OBV"] = ta.obv(df["Close"], df["Volume"])
+    df["OBV"] = OnBalanceVolumeIndicator(close=df["Close"], volume=df["Volume"]).on_balance_volume()
+    
     obv_slope = np.nan
     if len(df) >= 6:
         obv_slope = df["OBV"].iloc[-1] - df["OBV"].iloc[-6]
