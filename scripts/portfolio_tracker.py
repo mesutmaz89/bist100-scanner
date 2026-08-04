@@ -42,7 +42,8 @@ def evaluate_position(position):
     qty = float(position.get("quantity", 0))
 
     try:
-        df = yf.download(ticker, period="3m", interval="1d", progress=False)
+        # DÜZELTME: period="3m" yerine period="3mo" yapıldı
+        df = yf.download(ticker, period="3mo", interval="1d", progress=False)
         if df.empty or len(df) < 20:
             return None
 
