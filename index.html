@@ -218,7 +218,7 @@
   });
 
   // Firestore'u gerçek zamanlı dinle
-  const q = query(collection(db, "signals"), orderBy("updated_at", "desc"));
+  const q = collection(db, "signals");
   onSnapshot(q, (snapshot) => {
     allSignals = snapshot.docs.map(d => d.data());
     updatedText.textContent = "son güncelleme: " + new Date().toLocaleTimeString("tr-TR");
