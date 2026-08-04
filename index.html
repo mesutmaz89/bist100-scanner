@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>BIST100 Sinyal Paneli</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B0E11">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E11;
+    --panel:#14181F;
+    --panel-2:#191E26;
+    --border:#232830;
+    --text:#E8EAED;
+    --text-dim:#8B94A3;
+    --long:#16C784;
+    --long-bg:rgba(22,199,132,0.12);
+    --short:#EA3943;
+    --short-bg:rgba(234,57,67,0.12);
+    --amber:#F0B90B;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    padding-bottom:env(safe-area-inset-bottom);
+    min-height:100vh;
+  }
+  header{
+    position:sticky;top:0;z-index:10;
+    background:rgba(11,14,17,0.92);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);
+    padding:16px 16px 12px;
+  }
+  .title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  h1{font-size:17px;font-weight:700;margin:0;letter-spacing:-0.01em;}
+  .live-dot{width:7px;height:7px;border-radius:50%;background:var(--long);
+    display:inline-block;margin-right:6px;animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+  .updated{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-dim);margin-top:2px;}
+  .bell-btn{
+    background:var(--panel-2);border:1px solid var(--border);color:var(--text);
+    border-radius:10px;padding:8px 12px;font-size:12px;font-weight:600;
+    display:flex;align-items:center;gap:6px;cursor:pointer;
+  }
+  .bell-btn.active{background:var(--long-bg);border-color:var(--long);color:var(--long);}
+  .tabs{display:flex;gap:6px;margin-top:14px;}
+  .tab{
+    flex:1;text-align:center;padding:9px 0;border-radius:9px;
+    background:var(--panel);border:1px solid var(--border);
+    font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer;
+  }
+  .tab.active{background:var(--text);color:var(--bg);border-color:var(--text);}
+  main{padding:14px 16px 40px;max-width:640px;margin:0 auto;}
+  .empty{
+    text-align:center;padding:60px 20px;color:var(--text-dim);
+  }
+  .empty .big{font-size:32px;margin-bottom:10px;}
+  .empty p{font-size:13px;line-height:1.6;margin:4px 0;}
+  .card{
+    background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    padding:14px 16px;margin-bottom:10px;
+  }
+  .card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .ticker-row{display:flex;align-items:center;gap:8px;}
+  .ticker{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px;letter-spacing:0.02em;}
+  .badge{
+    font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;
+    text-transform:uppercase;letter-spacing:0.04em;
+  }
+  .badge.long{background:var(--long-bg);color:var(--long);}
+  .badge.short{background:var(--short-bg);color:var(--short);}
+  .conf{font-size:10px;font-weight:600;padding:3px 7px;border-radius:6px;background:var(--panel-2);color:var(--text-dim);}
+  .conf.high{color:var(--amber);}
+  .metrics{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px;
+  }
+  .metric{background:var(--panel-2);border-radius:8px;padding:7px 6px;text-align:center;}
+  .metric .lbl{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.03em;margin-bottom:3px;}
+  .metric .val{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;}
+  .metric.stop .val{color:var(--short);}
+  .metric.target .val{color:var(--long);}
+  .reasoning{font-size:12px;color:var(--text-dim);line-height:1.5;}
+  .card-footer{display:flex;justify-content:space-between;margin-top:10px;font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;}
+  .toast{
+    position:fixed;bottom:20px;left:16px;right:16px;max-width:600px;margin:0 auto;
+    background:var(--panel-2);border:1px solid var(--border);border-radius:12px;
+    padding:12px 16px;font-size:12px;color:var(--text-dim);text-align:center;
+    opacity:0;transform:translateY(10px);transition:all 0.3s;pointer-events:none;
+  }
+  .toast.show{opacity:1;transform:translateY(0);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-row">
+    <div>
+      <h1><span class="live-dot"></span>BIST100 Sinyal Paneli</h1>
+      <div class="updated" id="updated-text">yükleniyor…</div>
+    </div>
+    <button class="bell-btn" id="bell-btn">🔔 Bildirim Kapalı</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" data-filter="all">Tümü</div>
+    <div class="tab" data-filter="long">Long</div>
+    <div class="tab" data-filter="short">Short</div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="empty" id="empty-state">
+    <div class="big">📡</div>
+    <p>Sinyaller yükleniyor…</p>
+  </div>
+  <div id="card-list"></div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-app.js";
+  import {
+    getFirestore, collection, onSnapshot, doc, setDoc, query, orderBy
+  } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js";
+  import {
+    getMessaging, getToken, onMessage, isSupported
+  } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-messaging.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAUdkTkbut1KrO-IAOPGfAUG0fx0YCvY2A",
+    authDomain: "bist100-scanner.firebaseapp.com",
+    projectId: "bist100-scanner",
+    storageBucket: "bist100-scanner.firebasestorage.app",
+    messagingSenderId: "1034148308576",
+    appId: "1:1034148308576:web:e6b5a87fa5d34a45924505"
+  };
+  const VAPID_KEY = "BIU1zZhwl4i81NZ2WWXnigRcS2RxY28bZZOkE4R72supv8TCLJcDymhjDajTMRMQYwIeIhKPNorjJJExHmlI5-c";
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  const cardList = document.getElementById("card-list");
+  const emptyState = document.getElementById("empty-state");
+  const updatedText = document.getElementById("updated-text");
+  const bellBtn = document.getElementById("bell-btn");
+  const toast = document.getElementById("toast");
+
+  let allSignals = [];
+  let currentFilter = "all";
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    setTimeout(() => toast.classList.remove("show"), 3500);
+  }
+
+  function timeAgo(date) {
+    if (!date) return "-";
+    const s = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (s < 60) return "az önce";
+    if (s < 3600) return Math.floor(s / 60) + " dk önce";
+    if (s < 86400) return Math.floor(s / 3600) + " sa önce";
+    return Math.floor(s / 86400) + " gün önce";
+  }
+
+  function render() {
+    const filtered = currentFilter === "all"
+      ? allSignals
+      : allSignals.filter(s => s.direction === currentFilter);
+
+    if (filtered.length === 0) {
+      emptyState.style.display = "block";
+      emptyState.querySelector("p").textContent =
+        allSignals.length === 0 ? "Henüz sinyal yok. Tarama günde 3 kez otomatik çalışıyor." : "Bu filtrede sinyal yok.";
+      cardList.innerHTML = "";
+      return;
+    }
+    emptyState.style.display = "none";
+
+    cardList.innerHTML = filtered.map(s => `
+      <div class="card">
+        <div class="card-top">
+          <div class="ticker-row">
+            <span class="ticker">${s.ticker}</span>
+            <span class="badge ${s.direction}">${s.direction === 'long' ? 'AL' : 'SAT'}</span>
+          </div>
+          <span class="conf ${s.confidence}">${(s.confidence || '').toUpperCase()}</span>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="lbl">Giriş</div><div class="val">${s.entry ?? '-'}</div></div>
+          <div class="metric stop"><div class="lbl">Stop</div><div class="val">${s.stop_loss ?? '-'}</div></div>
+          <div class="metric target"><div class="lbl">Hedef</div><div class="val">${s.take_profit ?? '-'}</div></div>
+          <div class="metric"><div class="lbl">R/R</div><div class="val">1:${s.risk_reward ?? '-'}</div></div>
+        </div>
+        <div class="reasoning">${s.reasoning || ''}</div>
+        <div class="card-footer">
+          <span>skor: ${s.score ?? '-'}</span>
+          <span>${timeAgo(s.updated_at?.toDate ? s.updated_at.toDate() : null)}</span>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  document.querySelectorAll(".tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      currentFilter = tab.dataset.filter;
+      render();
+    });
+  });
+
+  // Firestore'u gerçek zamanlı dinle
+  const q = query(collection(db, "signals"), orderBy("updated_at", "desc"));
+  onSnapshot(q, (snapshot) => {
+    allSignals = snapshot.docs.map(d => d.data());
+    updatedText.textContent = "son güncelleme: " + new Date().toLocaleTimeString("tr-TR");
+    render();
+  }, (err) => {
+    updatedText.textContent = "bağlantı hatası";
+    console.error(err);
+  });
+
+  // --- Bildirim izni + FCM token kaydı ---
+  async function setupNotifications() {
+    const supported = await isSupported().catch(() => false);
+    if (!supported) {
+      bellBtn.textContent = "🔕 Desteklenmiyor";
+      bellBtn.disabled = true;
+      return;
+    }
+
+    if (Notification.permission === "granted") {
+      bellBtn.textContent = "🔔 Bildirim Açık";
+      bellBtn.classList.add("active");
+    }
+
+    bellBtn.addEventListener("click", async () => {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          showToast("Bildirim izni verilmedi.");
+          return;
+        }
+        const registration = await navigator.serviceWorker.register("firebase-messaging-sw.js");
+        const messaging = getMessaging(app);
+        const token = await getToken(messaging, {
+          vapidKey: VAPID_KEY,
+          serviceWorkerRegistration: registration,
+        });
+        if (token) {
+          await setDoc(doc(db, "config", "fcm_token"), {
+            token,
+            updated_at: new Date(),
+          });
+          bellBtn.textContent = "🔔 Bildirim Açık";
+          bellBtn.classList.add("active");
+          showToast("Bildirimler açıldı. Yüksek güvenli sinyallerde push alacaksın.");
+        }
+      } catch (e) {
+        console.error(e);
+        showToast("Bildirim kurulumunda hata oluştu.");
+      }
+    });
+
+    // Uygulama açıkken gelen bildirimler
+    try {
+      const messaging = getMessaging(app);
+      onMessage(messaging, (payload) => {
+        showToast(`${payload.notification?.title || 'Yeni sinyal'}`);
+      });
+    } catch (e) { /* messaging henüz kurulmamış olabilir, sorun değil */ }
+  }
+
+  setupNotifications();
+</script>
+</body>
+</html>

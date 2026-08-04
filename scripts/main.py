@@ -1,13 +1,12 @@
 """
 main.py — ÜCRETSİZ SÜRÜM (Claude API yok)
 Uçtan uca akış:
-  1. Firebase SDK'yı GitHub Secret üzerinden başlat
-  2. Watchlist'i oku
-  3. Her hisse için OHLCV çek (YKB -> Yahoo fallback) — ücretsiz
-  4. Teknik göstergeleri hesapla — ücretsiz
-  5. Kural-bazlı karar motoruyla sinyal üret (entry/stop/hedef/confidence) — ücretsiz
-  6. Firestore'a yaz — ücretsiz (Spark plan sınırları içinde)
-  7. confidence=high ve yeni olan sinyaller için FCM push gönder — ücretsiz
+  1. Watchlist'i oku
+  2. Her hisse için OHLCV çek (YKB -> Yahoo fallback) — ücretsiz
+  3. Teknik göstergeleri hesapla — ücretsiz
+  4. Kural-bazlı karar motoruyla sinyal üret (entry/stop/hedef/confidence) — ücretsiz
+  5. Firestore'a yaz — ücretsiz (Spark plan sınırları içinde)
+  6. confidence=high ve yeni olan sinyaller için FCM push gönder — ücretsiz
 
 Kullanım (GitHub Actions içinden):
   python scripts/main.py
@@ -17,30 +16,8 @@ import os
 import sys
 import json
 import logging
-import firebase_admin
-from firebase_admin import credentials
 
 sys.path.append(os.path.dirname(__file__))
-
-# --- Firebase Admin SDK İlklendirme ---
-def init_firebase():
-    if not firebase_admin._apps:
-        creds_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
-        if creds_json:
-            try:
-                cred_dict = json.loads(creds_json)
-                cred = credentials.Certificate(cred_dict)
-                firebase_admin.initialize_app(cred)
-                logging.info("Firebase SDK (Ortam değişkeninden) başarıyla başlatıldı.")
-            except Exception as e:
-                logging.error(f"Firebase ilklendirme hatası (JSON ayrıştırma): {e}")
-                raise e
-        elif os.path.exists("firebase-key.json"):
-            cred = credentials.Certificate("firebase-key.json")
-            firebase_admin.initialize_app(cred)
-            logging.info("Firebase SDK (Lokal dosyadan) başarıyla başlatıldı.")
-        else:
-            logging.warning("FIREBASE_SERVICE_ACCOUNT ortam değişkeni veya firebase-key.json bulunamadı!")
 
 from data_fetcher import fetch_all
 from indicators import compute_indicators
@@ -61,9 +38,6 @@ def load_watchlist() -> list[str]:
 
 
 def run():
-    # Firebase'i fonksiyonlar çağrılmadan önce ilklendir
-    init_firebase()
-
     tickers = load_watchlist()
     logger.info(f"Watchlist yüklendi: {len(tickers)} hisse")
 
