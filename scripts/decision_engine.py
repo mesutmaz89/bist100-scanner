@@ -13,10 +13,32 @@ def _confidence_from_score(score: int) -> str:
     return "low"
 
 
-def build_signal(ticker: str, indicators: dict) -> dict:
+def check_index_trend(index_df) -> bool:
+    """
+    BIST100 (XU100) endeksinin yükseliş trendinde olup olmadığını kontrol eder.
+    Endeks fiyatı EMA50 üzerindeyse True döner.
+    """
+    if index_df is None or index_df.empty or len(index_df) < 50:
+        return True  # Veri yoksa filtreyi pas geç
+    
+    close = float(index_df["Close"].iloc[-1])
+    ema50 = float(index_df["EMA_50"].iloc[-1]) if "EMA_50" in index_df.columns else float(index_df["Close"].ewm(span=50).mean().iloc[-1])
+    
+    return close >= ema50
+
+
+def build_signal(ticker: str, indicators: dict, index_uptrend: bool = True) -> dict:
     """Tek bir hisse için tam sinyal üretir (entry/stop/hedef dahil)."""
     if indicators is None:
         return {"ticker": ticker, "direction": "none", "reasoning": "veri yok"}
+
+    # Piyasa geneli düşüş trendindeyse yeni alım sinyali üretme
+    if not index_uptrend:
+        return {
+            "ticker": ticker,
+            "direction": "none",
+            "reasoning": "BIST100 endeksi düşüş trendinde (EMA50 altı) - Risk Filtresi Aktif",
+        }
 
     t, m, v = indicators["trend"], indicators["momentum"], indicators["volume"]
     close = indicators["close"]
@@ -30,7 +52,6 @@ def build_signal(ticker: str, indicators: dict) -> dict:
         long_score += 2
         reasons.append("trend yukarı (EMA50>EMA200)")
     
-    # ADX Eşiği 20'den 25'e çıkarıldı (Yatay piyasaları elemek için)
     if t.get("adx14") and t["adx14"] >= 25:
         long_score += 1
         reasons.append("ADX>=25 (güçlü trend)")
@@ -69,25 +90,24 @@ def build_signal(ticker: str, indicators: dict) -> dict:
     if v.get("above_avg") and long_score < 2:
         short_score += 1
 
-    # Skor eşiği 3 yerine 4 yapıldı (daha kaliteli kurulumlar)
     if long_score >= 4 and long_score >= short_score:
         direction = "long"
         score = long_score
         entry = close
-        # R/R oranı 1.0 ATR Stop / 2.0 ATR Hedef olarak optimize edildi
-        stop_loss = round(entry - 1.0 * atr, 4) if atr else None
-        take_profit = round(entry + 2.0 * atr, 4) if atr else None
+        # Başlangıç Stop: 1.2 ATR / Hedef: Trailing Stop ile izlenecek (varsayılan 2.5 ATR)
+        stop_loss = round(entry - 1.2 * atr, 4) if atr else None
+        take_profit = round(entry + 2.5 * atr, 4) if atr else None
     elif short_score >= 4 and short_score > long_score:
         direction = "short"
         score = short_score
         entry = close
-        stop_loss = round(entry + 1.0 * atr, 4) if atr else None
-        take_profit = round(entry - 2.0 * atr, 4) if atr else None
+        stop_loss = round(entry + 1.2 * atr, 4) if atr else None
+        take_profit = round(entry - 2.5 * atr, 4) if atr else None
     else:
         return {
             "ticker": ticker,
             "direction": "none",
-            "reasoning": "net kurulum yok (yüksek kalite skor eşiği altında)",
+            "reasoning": "net kurulum yok (skor eşiği altında)",
         }
 
     risk = abs(entry - stop_loss) if stop_loss else None
@@ -104,8 +124,5 @@ def build_signal(ticker: str, indicators: dict) -> dict:
         "confidence": _confidence_from_score(score),
         "reasoning": ", ".join(reasons) if reasons else "seçici kural bazlı skor geçildi",
         "score": score,
+        "atr": atr
     }
-
-
-def build_all_signals(all_indicators: dict) -> list[dict]:
-    return [build_signal(ticker, ind) for ticker, ind in all_indicators.items()]
