@@ -1,28 +1,25 @@
-// firebase-messaging-sw.js
-// Uygulama kapalıyken (arka planda) push bildirimlerini karşılar.
-// Bu dosya kök dizinde olmalı (index.html ile aynı seviyede).
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-importScripts("https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/12.17.0/firebase-messaging-compat.js");
-
+// index.html içindeki Firebase config bilgilerinle aynı olmalı
 firebase.initializeApp({
-  apiKey: "AIzaSyAUdkTkbut1KrO-IAOPGfAUG0fx0YCvY2A",
-  authDomain: "bist100-scanner.firebaseapp.com",
-  projectId: "bist100-scanner",
-  storageBucket: "bist100-scanner.firebasestorage.app",
-  messagingSenderId: "1034148308576",
-  appId: "1:1034148308576:web:e6b5a87fa5d34a45924505"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
 });
 
 const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
-  const title = payload.notification?.title || "BIST100 Sinyal";
-  const options = {
-    body: payload.notification?.body || "",
-    icon: "icons/icon-192.png",
-    badge: "icons/icon-192.png",
-    data: payload.data,
+  console.log('[firebase-messaging-sw.js] Arka plan bildirimi alındı: ', payload);
+  const notificationTitle = payload.notification.title;
+  const notificationOptions = {
+    body: payload.notification.body,
+    icon: '/bist100-scanner/icon.png' // Varsa ikon yolun
   };
-  self.registration.showNotification(title, options);
+
+  self.registration.showNotification(notificationTitle, notificationOptions);
 });
