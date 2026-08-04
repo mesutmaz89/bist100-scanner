@@ -49,10 +49,21 @@ def run_decision_engine(df):
 
 def load_watchlist():
     config_path = os.path.join(os.path.dirname(__file__), "..", "config", "watchlist.json")
+    raw_tickers = []
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f).get("tickers", [])
-    return ["THYAO.IS", "GARAN.IS", "ASELS.IS", "EREGL.IS", "AKBNK.IS"]
+            raw_tickers = json.load(f).get("tickers", [])
+    if not raw_tickers:
+        raw_tickers = ["THYAO.IS", "GARAN.IS", "ASELS.IS", "EREGL.IS", "AKBNK.IS"]
+    
+    # BIST sembollerinin sonuna .IS eklenmesini garantiye alıyoruz
+    formatted_tickers = []
+    for t in raw_tickers:
+        t = t.strip().upper()
+        if not t.endswith(".IS"):
+            t += ".IS"
+        formatted_tickers.append(t)
+    return formatted_tickers
 
 
 def run_backtest(period="1y"):
