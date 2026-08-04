@@ -1,38 +1,47 @@
 """
 fcm_notifier.py
-Kişisel kullanım için basitleştirildi: topic yerine tek cihaz token'ı kullanılır.
-Token, PWA dashboard tarayıcıdan bildirim izni alındığında Firestore'daki
-config/fcm_token dokümanına yazılır; bu script onu okuyup push gönderir.
-
 Sadece confidence=high ve YENİ (önceki çalıştırmadan farklı) sinyaller için push gönderir.
+Spam'i önlemek amacıyla aynı ticker+direction kombinasyonu tekrar bildirim üretmez.
 """
 
+import os
+import json
 import logging
-from firebase_admin import messaging, firestore
+import firebase_admin
+from firebase_admin import credentials, messaging, firestore
 
 logger = logging.getLogger("fcm_notifier")
 
 
-def _get_device_token(db):
-    doc = db.collection("config").document("fcm_token").get()
-    if not doc.exists:
-        return None
-    return doc.to_dict().get("token")
+def init_firebase():
+    """Firebase SDK zaten başlatılmamışsa başlatır."""
+    if not firebase_admin._apps:
+        creds_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
+        if creds_json:
+            cred_dict = json.loads(creds_json)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        elif os.path.exists("firebase-key.json"):
+            cred = credentials.Certificate("firebase-key.json")
+            firebase_admin.initialize_app(cred)
 
 
-def _get_previous_signal(db, ticker: str):
+def _get_previous_signal(db, ticker: str) -> dict | None:
     doc = db.collection("signals").document(ticker).get()
     return doc.to_dict() if doc.exists else None
 
 
-def notify_new_signals(signals: list[dict]):
-    db = firestore.client()
-    token = _get_device_token(db)
-
-    if not token:
-        logger.info("Kayıtlı FCM token yok, bildirim atlanıyor (PWA'dan bildirim izni verilmeli).")
+def notify_new_signals(signals: list[dict], topic: str = "bist100_signals"):
+    """
+    signals: bu çalıştırmada üretilen ham sinyaller (Firestore'a yazılmadan ÖNCE çağrılmalı)
+    """
+    init_firebase()  # Firebase SDK'yı burada garantiye alıyoruz
+    
+    if not firebase_admin._apps:
+        logger.error("Firebase başlatılamadı. Kredansiyelleri (FIREBASE_SERVICE_ACCOUNT) kontrol edin.")
         return 0
 
+    db = firestore.client()
     sent = 0
 
     for sig in signals:
@@ -42,6 +51,7 @@ def notify_new_signals(signals: list[dict]):
         ticker = sig["ticker"]
         prev = _get_previous_signal(db, ticker)
 
+        # Aynı yön zaten bildirilmişse tekrar gönderme
         if prev and prev.get("direction") == sig["direction"]:
             continue
 
@@ -59,7 +69,7 @@ def notify_new_signals(signals: list[dict]):
                 "direction": sig["direction"],
                 "confidence": sig["confidence"],
             },
-            token=token,
+            topic=topic,
         )
 
         try:
