@@ -6,13 +6,12 @@ Girdi: pandas DataFrame (columns: Open, High, Low, Close, Volume)
 """
 
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
 
 
 def compute_indicators(df: pd.DataFrame) -> dict:
     """
-    df: en az 210 barlık günlük OHLCV verisi (EMA200 için yeterli geçmiş gerekir)
+    df: en az 60 barlık günlük OHLCV verisi (EMA200 için en az 200 satır önerilir)
     Dönen dict: Claude'a gönderilecek özet göstergeler
     """
     if df is None or len(df) < 60:
@@ -21,31 +20,63 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     df = df.copy()
     df.columns = [c.capitalize() for c in df.columns]
 
-    # --- Trend ---
-    df["EMA20"] = ta.ema(df["Close"], length=20)
-    df["EMA50"] = ta.ema(df["Close"], length=50)
-    df["EMA200"] = ta.ema(df["Close"], length=200) if len(df) >= 200 else np.nan
+    # --- Trend (EMA) ---
+    df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
+    df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
+    df["EMA200"] = df["Close"].ewm(span=200, adjust=False).mean() if len(df) >= 200 else np.nan
 
-    adx = ta.adx(df["High"], df["Low"], df["Close"], length=14)
-    df["ADX14"] = adx["ADX_14"] if adx is not None else np.nan
+    # --- ADX (14) ---
+    high_diff = df["High"].diff()
+    low_diff = -df["Low"].diff()
+    
+    pos_dm = np.where((high_diff > low_diff) & (high_diff > 0), high_diff, 0.0)
+    neg_dm = np.where((low_diff > high_diff) & (low_diff > 0), low_diff, 0.0)
 
-    # --- Momentum ---
-    df["RSI14"] = ta.rsi(df["Close"], length=14)
-    macd = ta.macd(df["Close"], fast=12, slow=26, signal=9)
-    df["MACD"] = macd["MACD_12_26_9"]
-    df["MACD_SIGNAL"] = macd["MACDs_12_26_9"]
-    df["MACD_HIST"] = macd["MACDh_12_26_9"]
+    tr = np.maximum(
+        df["High"] - df["Low"],
+        np.maximum(
+            (df["High"] - df["Close"].shift(1)).abs(),
+            (df["Low"] - df["Close"].shift(1)).abs()
+        )
+    )
 
-    # --- Volatilite ---
-    df["ATR14"] = ta.atr(df["High"], df["Low"], df["Close"], length=14)
-    bb = ta.bbands(df["Close"], length=20, std=2)
-    df["BB_UPPER"] = bb["BBU_20_2.0"]
-    df["BB_LOWER"] = bb["BBL_20_2.0"]
+    tr_smooth = pd.Series(tr, index=df.index).ewm(alpha=1/14, adjust=False).mean()
+    pos_di = 100 * (pd.Series(pos_dm, index=df.index).ewm(alpha=1/14, adjust=False).mean() / tr_smooth)
+    neg_di = 100 * (pd.Series(neg_dm, index=df.index).ewm(alpha=1/14, adjust=False).mean() / tr_smooth)
+    
+    dx = 100 * (pos_di - neg_di).abs() / (pos_di + neg_di)
+    df["ADX14"] = dx.ewm(alpha=1/14, adjust=False).mean()
+
+    # --- Momentum (RSI & MACD) ---
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    df["RSI14"] = 100 - (100 / (1 + rs))
+
+    ema12 = df["Close"].ewm(span=12, adjust=False).mean()
+    ema26 = df["Close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = ema12 - ema26
+    df["MACD_SIGNAL"] = df["MACD"].ewm(span=9, adjust=False).mean()
+    df["MACD_HIST"] = df["MACD"] - df["MACD_SIGNAL"]
+
+    # --- Volatilite (ATR & Bollinger Bands) ---
+    df["ATR14"] = tr_smooth
+    
+    bb_middle = df["Close"].rolling(window=20).mean()
+    bb_std = df["Close"].rolling(window=20).std()
+    df["BB_UPPER"] = bb_middle + (bb_std * 2)
+    df["BB_LOWER"] = bb_middle - (bb_std * 2)
     df["BB_WIDTH"] = (df["BB_UPPER"] - df["BB_LOWER"]) / df["Close"]
 
-    # --- Hacim ---
+    # --- Hacim (OBV & VOL_AVG) ---
     df["VOL_AVG20"] = df["Volume"].rolling(20).mean()
-    df["OBV"] = ta.obv(df["Close"], df["Volume"])
+    
+    obv_change = np.sign(df["Close"].diff()).fillna(0)
+    df["OBV"] = (obv_change * df["Volume"]).cumsum()
+    
     obv_slope = np.nan
     if len(df) >= 6:
         obv_slope = df["OBV"].iloc[-1] - df["OBV"].iloc[-6]
@@ -53,7 +84,7 @@ def compute_indicators(df: pd.DataFrame) -> dict:
     last = df.iloc[-1]
     prev = df.iloc[-2]
 
-    # RSI divergence (basit kontrol: son 10 barda fiyat yeni yüksek yaptı ama RSI yapmadı)
+    # RSI divergence kontrolü
     lookback = df.iloc[-10:]
     bearish_div = (
         last["Close"] >= lookback["Close"].max() * 0.999
