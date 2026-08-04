@@ -4,10 +4,26 @@ Sadece confidence=high ve YENİ (önceki çalıştırmadan farklı) sinyaller i�
 Spam'i önlemek amacıyla aynı ticker+direction kombinasyonu tekrar bildirim üretmez.
 """
 
+import os
+import json
 import logging
-from firebase_admin import messaging, firestore
+import firebase_admin
+from firebase_admin import credentials, messaging, firestore
 
 logger = logging.getLogger("fcm_notifier")
+
+
+def init_firebase():
+    """Firebase SDK zaten başlatılmamışsa başlatır."""
+    if not firebase_admin._apps:
+        creds_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
+        if creds_json:
+            cred_dict = json.loads(creds_json)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+        elif os.path.exists("firebase-key.json"):
+            cred = credentials.Certificate("firebase-key.json")
+            firebase_admin.initialize_app(cred)
 
 
 def _get_previous_signal(db, ticker: str) -> dict | None:
@@ -20,6 +36,7 @@ def notify_new_signals(signals: list[dict], topic: str = "bist100_signals"):
     signals: bu çalıştırmada üretilen ham sinyaller (Firestore'a yazılmadan ÖNCE çağrılmalı,
     çünkü karşılaştırma için 'önceki' değeri okuyoruz)
     """
+    init_firebase()
     db = firestore.client()
     sent = 0
 
@@ -30,7 +47,7 @@ def notify_new_signals(signals: list[dict], topic: str = "bist100_signals"):
         ticker = sig["ticker"]
         prev = _get_previous_signal(db, ticker)
 
-        # aynı yön zaten bildirilmişse tekrar gönderme
+        # Aynı yön zaten bildirilmişse tekrar gönderme
         if prev and prev.get("direction") == sig["direction"]:
             continue
 
