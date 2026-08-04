@@ -1,7 +1,7 @@
 yfinance>=0.2.40
 pandas>=2.0.0
 numpy>=1.24.0
-https://github.com/twopirllc/pandas-ta/archive/refs/heads/main.zip
+https://files.pythonhosted.org/packages/4c/a2/2f0c76e279b9bc88a444a6f9f9d22cf8b072caee15b1397b9ec59b56f264/pandas_ta-0.3.14b0-py3-none-any.whl
 requests>=2.31.0
 firebase-admin>=6.5.0
 python-dateutil>=2.8.2
