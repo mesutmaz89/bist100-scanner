@@ -8,11 +8,29 @@ import json
 import logging
 import pandas as pd
 import yfinance as yf
-from indicators import add_all_indicators
+import indicators
 from decision_engine import evaluate_stock
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("backtest")
+
+
+def apply_indicators(df):
+    """indicators.py içindeki mevcut indikatör ekleme fonksiyonlarını dinamik olarak çağırır."""
+    if hasattr(indicators, "add_all_indicators"):
+        return indicators.add_all_indicators(df)
+    elif hasattr(indicators, "calculate_indicators"):
+        return indicators.calculate_indicators(df)
+    elif hasattr(indicators, "add_indicators"):
+        return indicators.add_indicators(df)
+    else:
+        # Eğer özel bir wrapper fonksiyonu yoksa indikatörleri sırayla ekler
+        if hasattr(indicators, "add_rsi"): df = indicators.add_rsi(df)
+        if hasattr(indicators, "add_macd"): df = indicators.add_macd(df)
+        if hasattr(indicators, "add_adx"): df = indicators.add_adx(df)
+        if hasattr(indicators, "add_ema"): df = indicators.add_ema(df)
+        if hasattr(indicators, "add_obv"): df = indicators.add_obv(df)
+        return df
 
 
 def load_watchlist():
@@ -41,7 +59,7 @@ def run_backtest(period="1y"):
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
-            df = add_all_indicators(df)
+            df = apply_indicators(df)
 
             in_position = False
             entry_price = 0.0
@@ -49,7 +67,6 @@ def run_backtest(period="1y"):
             take_profit = 0.0
             direction = None
 
-            # Simülasyon: Gün gün ilerle
             for i in range(35, len(df)):
                 sub_df = df.iloc[:i+1]
                 current_bar = df.iloc[i]
@@ -61,28 +78,28 @@ def run_backtest(period="1y"):
                     if sig and sig.get("direction") in ["long", "short"]:
                         in_position = True
                         direction = sig["direction"]
-                        entry_price = sig["entry"]
-                        stop_loss = sig["stop_loss"]
-                        take_profit = sig["take_profit"]
+                        entry_price = sig.get("entry", current_bar["Close"])
+                        stop_loss = sig.get("stop_loss", 0.0)
+                        take_profit = sig.get("take_profit", 0.0)
                 else:
                     trade_closed = False
                     profit_pct = 0.0
 
                     if direction == "long":
-                        if current_low <= stop_loss:
+                        if current_low <= stop_loss and stop_loss > 0:
                             profit_pct = ((stop_loss - entry_price) / entry_price) * 100
                             trade_closed = True
                             losing_trades += 1
-                        elif current_high >= take_profit:
+                        elif current_high >= take_profit and take_profit > 0:
                             profit_pct = ((take_profit - entry_price) / entry_price) * 100
                             trade_closed = True
                             winning_trades += 1
                     elif direction == "short":
-                        if current_high >= stop_loss:
+                        if current_high >= stop_loss and stop_loss > 0:
                             profit_pct = ((entry_price - stop_loss) / entry_price) * 100
                             trade_closed = True
                             losing_trades += 1
-                        elif current_low <= take_profit:
+                        elif current_low <= take_profit and take_profit > 0:
                             profit_pct = ((entry_price - take_profit) / entry_price) * 100
                             trade_closed = True
                             winning_trades += 1
