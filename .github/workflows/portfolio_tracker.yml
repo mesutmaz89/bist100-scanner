@@ -1,0 +1,44 @@
+name: Portfolio Tracker Scan
+
+on:
+  schedule:
+    # Hafta içi (Pazartesi-Cuma) Türkiye saatiyle 10:00 - 18:00 arası saat başı çalışır.
+    # UTC zaman dilimi kullanıldığı için (UTC+3 Türkiye): 07:00 - 15:00 UTC
+    - cron: '0 7-15 * * 1-5'
+  workflow_dispatch: # GitHub panelinden manuel tetiklemek için
+
+jobs:
+  track-portfolio:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Repo Kodlarını Çek
+      uses: actions/checkout@v4
+
+    - name: Python Ortamını Kur
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Bağımlılıkları Yükle
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Firebase Yetki Dosyasını Oluştur
+      env:
+        FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      run: |
+        echo "$FIREBASE_SERVICE_ACCOUNT" > firebase_credentials.json
+
+    - name: Portfolio Tracker Scriptini Çalıştır
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS: firebase_credentials.json
+      run: |
+        python scripts/portfolio_tracker.py
+
+    - name: Geçici Yetki Dosyasını Temizle
+      if: always()
+      run: |
+        rm -f firebase_credentials.json
