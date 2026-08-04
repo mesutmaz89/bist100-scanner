@@ -27,7 +27,7 @@ jobs:
       - name: Bağımlılıkları yükle
         run: |
           pip install --upgrade pip
-          pip install pandas-ta --no-deps
+          pip install https://github.com/twopirllc/pandas-ta/tarball/main
           pip install -r requirements.txt
 
       - name: Scanner'ı çalıştır
