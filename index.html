@@ -92,6 +92,7 @@
     background:var(--panel-2);border:1px solid var(--border);border-radius:12px;
     padding:12px 16px;font-size:12px;color:var(--text-dim);text-align:center;
     opacity:0;transform:translateY(10px);transition:all 0.3s;pointer-events:none;
+    z-index:99;
   }
   .toast.show{opacity:1;transform:translateY(0);}
 </style>
@@ -227,7 +228,20 @@
     console.error(err);
   });
 
-  // --- Bildirim izni + FCM token kaydı ---
+  // --- Service Worker & Bildirim Kurulumu ---
+  async function registerSW() {
+    if ("serviceWorker" in navigator) {
+      try {
+        // GitHub Pages alt yolu (/bist100-scanner/) gözetilerek Service Worker kaydediliyor
+        const reg = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
+        return reg;
+      } catch (err) {
+        console.error("Service Worker kaydı başarısız:", err);
+      }
+    }
+    return null;
+  }
+
   async function setupNotifications() {
     const supported = await isSupported().catch(() => false);
     if (!supported) {
@@ -248,12 +262,19 @@
           showToast("Bildirim izni verilmedi.");
           return;
         }
-        const registration = await navigator.serviceWorker.register("firebase-messaging-sw.js");
+
+        const registration = await registerSW();
+        if (!registration) {
+          showToast("Service Worker başlatılamadı.");
+          return;
+        }
+
         const messaging = getMessaging(app);
         const token = await getToken(messaging, {
           vapidKey: VAPID_KEY,
           serviceWorkerRegistration: registration,
         });
+
         if (token) {
           await setDoc(doc(db, "config", "fcm_token"), {
             token,
@@ -264,7 +285,7 @@
           showToast("Bildirimler açıldı. Yüksek güvenli sinyallerde push alacaksın.");
         }
       } catch (e) {
-        console.error(e);
+        console.error("Push abonelik hatası:", e);
         showToast("Bildirim kurulumunda hata oluştu.");
       }
     });
@@ -275,9 +296,11 @@
       onMessage(messaging, (payload) => {
         showToast(`${payload.notification?.title || 'Yeni sinyal'}`);
       });
-    } catch (e) { /* messaging henüz kurulmamış olabilir, sorun değil */ }
+    } catch (e) { /* messaging henüz kurulmamış olabilir */ }
   }
 
+  // Sayfa yüklendiğinde Service Worker'ı önceden kaydet
+  registerSW();
   setupNotifications();
 </script>
 </body>
