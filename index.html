@@ -22,7 +22,7 @@
         <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
         BIST100 Sinyal Paneli
       </h1>
-      <p id="last-update" class="text-xs text-gray-400 mt-1">Son güncelleme: Yükleniyor...</p>
+      <p id="last-update" class="text-xs text-gray-400 mt-1">Canlı Takip Aktif</p>
     </div>
     <div class="flex bg-[#161b22] p-1 rounded-xl border border-[#30363d]">
       <button onclick="switchTab('signals')" id="tab-signals" class="px-5 py-2 text-sm font-medium rounded-lg text-white bg-[#21262d]">Sinyaller</button>
@@ -36,7 +36,7 @@
     <!-- Toplam Özet Kartı -->
     <div class="card p-5 grid grid-cols-2 md:grid-cols-4 gap-4 border-l-4 border-l-blue-500">
       <div>
-        <p class="text-xs text-gray-400 uppercase tracking-wider">Maliyet Value</p>
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Maliyet Değeri</p>
         <p id="total-cost" class="text-lg font-bold text-white">0.00 TL</p>
       </div>
       <div>
@@ -48,7 +48,7 @@
         <p id="total-pnl" class="text-lg font-bold text-gray-400">0.00 TL</p>
       </div>
       <div>
-        <p class="text-xs text-gray-400 uppercase tracking-wider">Getiri (%)</p>
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Toplam Getiri</p>
         <p id="total-pnl-pct" class="text-lg font-bold text-gray-400">%0.00</p>
       </div>
     </div>
@@ -60,7 +60,7 @@
       </h2>
       <form id="add-position-form" class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <!-- Otomatik Tamamlamalı Hisse Girdisi -->
-        <div class="relative">
+        <div>
           <input list="bist100-list" id="pos-ticker" type="text" placeholder="Hisse Ara (Örn: THYAO)" class="input-field w-full uppercase" required autocomplete="off">
           <datalist id="bist100-list">
             <option value="AKBNK">Akbank</option><option value="ALARK">Alarko Holding</option>
@@ -95,31 +95,45 @@
       </form>
     </section>
 
-    <!-- Pozisyon Listesi -->
+    <!-- Pozisyon Kartları Listesi -->
     <div id="positions-container" class="space-y-4">
       <div class="text-center py-8 text-gray-500">Pozisyonlar yükleniyor...</div>
     </div>
   </main>
 
-  <!-- Helper & Formatting Scripts -->
-  <script>
-    // Güvenli Sayı Formatlayıcı (NaN Kontrolü)
-    function safeNumber(val, fallback = 0) {
-      if (val === undefined || val === null || isNaN(Number(val))) return fallback;
-      return Number(val);
+  <!-- Firebase & Uygulama Mantığı -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // Firebase Konfigürasyonu (Projenize ait bilgileri buraya ekleyin)
+    const firebaseConfig = {
+      // apiKey, authDomain, projectId vs. buraya gelecek
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    let currentPositions = [];
+    let currentAlerts = {};
+
+    // Güvenli Sayı Formatlama (NaN Engelleyici)
+    function safeNum(val) {
+      const num = Number(val);
+      return isNaN(num) ? null : num;
     }
 
     function formatMoney(val) {
-      const num = safeNumber(val, null);
-      if (num === null) return "--- TL";
-      return `${num.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+      const n = safeNum(val);
+      if (n === null) return "--- TL";
+      return `${n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
     }
 
     function formatPercent(val) {
-      const num = safeNumber(val, null);
-      if (num === null) return "%---";
-      const sign = num > 0 ? "+" : "";
-      return `${sign}%${num.toFixed(2)}`;
+      const n = safeNum(val);
+      if (n === null) return "%---";
+      const sign = n > 0 ? "+" : "";
+      return `${sign}%${n.toFixed(2)}`;
     }
 
     function getBadgeStyle(action) {
@@ -131,17 +145,152 @@
       }
     }
 
-    function getActionText(action) {
-      switch (action) {
-        case 'EXIT_ALL': return 'ÇIK (STOP)';
-        case 'TAKE_PROFIT_HALF': return 'KÂR SAT (%50)';
-        case 'BUY_MORE': return 'EKLE';
-        default: return 'TUT';
+    // Pozisyon Ekleme İşlemi
+    document.getElementById('add-position-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const rawTicker = document.getElementById('pos-ticker').value.trim().toUpperCase();
+      const price = parseFloat(document.getElementById('pos-price').value);
+      const qty = parseFloat(document.getElementById('pos-qty').value);
+
+      if (!rawTicker || !price || !qty) return;
+
+      try {
+        await addDoc(collection(db, "user_positions"), {
+          ticker: rawTicker,
+          entry_price: price,
+          quantity: qty,
+          status: "OPEN",
+          created_at: serverTimestamp()
+        });
+        document.getElementById('add-position-form').reset();
+      } catch (err) {
+        console.error("Pozisyon eklenirken hata:", err);
+        alert("Pozisyon eklenemedi, Firestore izinlerini kontrol edin.");
       }
+    });
+
+    // Pozisyon Kapatma (Silme) İşlemi
+    window.closePosition = async (id) => {
+      if (confirm("Bu pozisyonu kapatmak/silmek istediğinize emin misiniz?")) {
+        try {
+          await updateDoc(doc(db, "user_positions", id), { status: "CLOSED" });
+        } catch (err) {
+          console.error("Pozisyon kapatma hatası:", err);
+        }
+      }
+    };
+
+    // Firestore Canlı Dinleyicileri (Realtime Listeners)
+    onSnapshot(collection(db, "user_positions"), (snapshot) => {
+      currentPositions = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.status === "OPEN") {
+          currentPositions.push({ id: docSnap.id, ...data });
+        }
+      });
+      renderPortfolio();
+    });
+
+    onSnapshot(collection(db, "portfolio_alerts"), (snapshot) => {
+      currentAlerts = {};
+      snapshot.forEach(docSnap => {
+        currentAlerts[docSnap.id] = docSnap.data();
+      });
+      renderPortfolio();
+    });
+
+    // Ekranı Çizme ve Hesaplama (Render Function)
+    function renderPortfolio() {
+      const container = document.getElementById('positions-container');
+      if (currentPositions.length === 0) {
+        container.innerHTML = `<div class="card p-8 text-center text-gray-400">Henüz açık bir pozisyonunuz bulunmuyor.</div>`;
+        updateSummary(0, 0);
+        return;
+      }
+
+      let totalCost = 0;
+      let totalValue = 0;
+      let html = '';
+
+      currentPositions.forEach(pos => {
+        const alert = currentAlerts[pos.id] || {};
+        const cost = pos.entry_price * pos.quantity;
+        const currentPrice = safeNum(alert.current_price);
+        const val = currentPrice !== null ? currentPrice * pos.quantity : cost;
+
+        totalCost += cost;
+        totalValue += val;
+
+        const pnlPct = safeNum(alert.pnl_pct);
+        const pnlAmount = safeNum(alert.pnl_amount);
+        const pnlColor = pnlPct !== null && pnlPct >= 0 ? 'text-emerald-400' : (pnlPct !== null ? 'text-red-400' : 'text-gray-400');
+        const badgeStyle = getBadgeStyle(alert.action);
+
+        html += `
+          <div class="card p-5 relative">
+            <button onclick="closePosition('${pos.id}')" title="Pozisyonu Sil" class="absolute top-4 right-4 text-gray-500 hover:text-red-400 transition-colors">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>
+            <div class="flex items-center gap-3 mb-4">
+              <h3 class="text-xl font-bold text-white">${pos.ticker}</h3>
+              <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full border ${badgeStyle}">
+                ${alert.action || 'BEKLENİYOR'}
+              </span>
+              <span class="text-xs text-gray-400">${pos.quantity} Adet</span>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center bg-[#0d1117] p-3 rounded-lg border border-[#30363d] mb-3">
+              <div>
+                <p class="text-xs text-gray-400">Maliyet</p>
+                <p class="font-bold text-white">${formatMoney(pos.entry_price)}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-400">Güncel Fiyat</p>
+                <p class="font-bold text-white">${formatMoney(alert.current_price)}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-400">K/Z (%)</p>
+                <p class="font-bold ${pnlColor}">${formatPercent(pnlPct)}</p>
+              </div>
+              <div>
+                <p class="text-xs text-gray-400">İz Süren Stop</p>
+                <p class="font-bold text-amber-400">${formatMoney(alert.trailing_stop_price)}</p>
+              </div>
+            </div>
+
+            <div class="flex justify-between items-center text-xs text-gray-400">
+              <p>${alert.reasoning || 'Analiz verisi yükleniyor...'}</p>
+              <p class="${pnlColor} font-semibold">Net K/Z: ${formatMoney(pnlAmount)}</p>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+      updateSummary(totalCost, totalValue);
     }
 
-    // Tab Geçiş Fonksiyonu
-    function switchTab(tab) {
+    // Toplam Özet Kartını Güncelleme
+    function updateSummary(cost, value) {
+      const pnl = value - cost;
+      const pct = cost > 0 ? (pnl / cost) * 100 : 0;
+      const color = pnl >= 0 ? 'text-emerald-400' : 'text-red-400';
+
+      document.getElementById('total-cost').innerText = formatMoney(cost);
+      document.getElementById('total-value').innerText = formatMoney(value);
+      
+      const pnlElem = document.getElementById('total-pnl');
+      pnlElem.innerText = formatMoney(pnl);
+      pnlElem.className = `text-lg font-bold ${color}`;
+
+      const pctElem = document.getElementById('total-pnl-pct');
+      pctElem.innerText = formatPercent(pct);
+      pctElem.className = `text-lg font-bold ${color}`;
+    }
+
+    // Tab Geçiş Mantığı
+    window.switchTab = (tab) => {
       const btnSignals = document.getElementById('tab-signals');
       const btnPortfolio = document.getElementById('tab-portfolio');
       const viewPortfolio = document.getElementById('view-portfolio');
@@ -155,7 +304,7 @@
         btnPortfolio.className = "px-5 py-2 text-sm font-medium rounded-lg text-gray-400 hover:text-white";
         viewPortfolio.classList.add('hidden');
       }
-    }
+    };
   </script>
 </body>
 </html>
