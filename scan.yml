@@ -1,0 +1,35 @@
+name: BIST100 Scanner
+
+on:
+  schedule:
+    # Not: GitHub Actions cron UTC kullanır. İstanbul yaz saati UTC+3.
+    # 10:15 açılış  -> 07:15 UTC
+    # 13:00 öğle    -> 10:00 UTC
+    # 18:15 kapanış -> 15:15 UTC
+    - cron: "15 7 * * 1-5"
+    - cron: "0 10 * * 1-5"
+    - cron: "15 15 * * 1-5"
+  workflow_dispatch: {}   # manuel tetikleme için (test amaçlı)
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Kodu çek
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Bağımlılıkları yükle
+        run: pip install -r requirements.txt
+
+      - name: Scanner'ı çalıştır
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          YKB_API_KEY: ${{ secrets.YKB_API_KEY }}
+          YKB_BASE_URL: ${{ secrets.YKB_BASE_URL }}
+        run: python scripts/main.py
