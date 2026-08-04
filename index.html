@@ -23,6 +23,8 @@
     --short:#EA3943;
     --short-bg:rgba(234,57,67,0.12);
     --amber:#F0B90B;
+    --blue:#2196F3;
+    --blue-bg:rgba(33,150,243,0.12);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   body{
@@ -49,11 +51,11 @@
     display:flex;align-items:center;gap:6px;cursor:pointer;
   }
   .bell-btn.active{background:var(--long-bg);border-color:var(--long);color:var(--long);}
-  .tabs{display:flex;gap:6px;margin-top:14px;}
+  .tabs{display:flex;gap:6px;margin-top:14px;overflow-x:auto;}
   .tab{
-    flex:1;text-align:center;padding:9px 0;border-radius:9px;
+    flex:1;text-align:center;padding:9px 12px;border-radius:9px;
     background:var(--panel);border:1px solid var(--border);
-    font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer;
+    font-size:13px;font-weight:600;color:var(--text-dim);cursor:pointer;white-space:nowrap;
   }
   .tab.active{background:var(--text);color:var(--bg);border-color:var(--text);}
   main{padding:14px 16px 40px;max-width:640px;margin:0 auto;}
@@ -75,6 +77,10 @@
   }
   .badge.long{background:var(--long-bg);color:var(--long);}
   .badge.short{background:var(--short-bg);color:var(--short);}
+  .badge.exit{background:var(--short-bg);color:var(--short);}
+  .badge.take_profit{background:var(--long-bg);color:var(--long);}
+  .badge.buy_more{background:var(--blue-bg);color:var(--blue);}
+  .badge.hold{background:var(--panel-2);color:var(--text-dim);}
   .conf{font-size:10px;font-weight:600;padding:3px 7px;border-radius:6px;background:var(--panel-2);color:var(--text-dim);}
   .conf.high{color:var(--amber);}
   .metrics{
@@ -85,8 +91,53 @@
   .metric .val{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;}
   .metric.stop .val{color:var(--short);}
   .metric.target .val{color:var(--long);}
+  .metric.pnl-pos .val{color:var(--long);}
+  .metric.pnl-neg .val{color:var(--short);}
   .reasoning{font-size:12px;color:var(--text-dim);line-height:1.5;}
   .card-footer{display:flex;justify-content:space-between;margin-top:10px;font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;}
+  
+  /* Portföy Formu Stilleri */
+  .portfolio-form-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .portfolio-form-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .form-input {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    width: 100%;
+  }
+  .form-input:focus { outline: none; border-color: var(--text-dim); }
+  .btn-submit {
+    width: 100%;
+    background: var(--text);
+    color: var(--bg);
+    border: none;
+    border-radius: 8px;
+    padding: 10px;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
   .toast{
     position:fixed;bottom:20px;left:16px;right:16px;max-width:600px;margin:0 auto;
     background:var(--panel-2);border:1px solid var(--border);border-radius:12px;
@@ -111,10 +162,26 @@
     <div class="tab active" data-filter="all">Tümü</div>
     <div class="tab" data-filter="long">Long</div>
     <div class="tab" data-filter="short">Short</div>
+    <div class="tab" data-filter="portfolio">💼 Portföyüm</div>
   </div>
 </header>
 
 <main id="main">
+  <!-- Portföy Ekleme Form Alanı (Varsayılan Olarak Gizli) -->
+  <div id="portfolio-form-container" style="display: none;">
+    <div class="portfolio-form-card">
+      <h3>➕ Yeni Pozisyon Ekle</h3>
+      <form id="addPositionForm">
+        <div class="form-grid">
+          <input type="text" id="ticker" class="form-input" placeholder="Hisse (THYAO)" required>
+          <input type="number" step="0.01" id="entryPrice" class="form-input" placeholder="Alış Fiyatı" required>
+          <input type="number" id="quantity" class="form-input" placeholder="Adet" required>
+        </div>
+        <button type="submit" class="btn-submit">Pozisyonu Kaydet</button>
+      </form>
+    </div>
+  </div>
+
   <div class="empty" id="empty-state">
     <div class="big">📡</div>
     <p>Sinyaller yükleniyor…</p>
@@ -127,7 +194,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-app.js";
   import {
-    getFirestore, collection, onSnapshot, doc, setDoc, query, orderBy
+    getFirestore, collection, onSnapshot, doc, setDoc, addDoc
   } from "https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore.js";
   import {
     getMessaging, getToken, onMessage, isSupported
@@ -151,8 +218,10 @@
   const updatedText = document.getElementById("updated-text");
   const bellBtn = document.getElementById("bell-btn");
   const toast = document.getElementById("toast");
+  const portfolioFormContainer = document.getElementById("portfolio-form-container");
 
   let allSignals = [];
+  let portfolioAlerts = [];
   let currentFilter = "all";
 
   function showToast(msg) {
@@ -171,6 +240,52 @@
   }
 
   function render() {
+    // Portföy Görünümü
+    if (currentFilter === "portfolio") {
+      portfolioFormContainer.style.display = "block";
+      if (portfolioAlerts.length === 0) {
+        emptyState.style.display = "block";
+        emptyState.querySelector("p").textContent = "Henüz eklenmiş bir pozisyon veya canlı uyarı yok.";
+        cardList.innerHTML = "";
+        return;
+      }
+      emptyState.style.display = "none";
+
+      cardList.innerHTML = portfolioAlerts.map(p => {
+        const pnlClass = (p.pnl_pct || 0) >= 0 ? "pnl-pos" : "pnl-neg";
+        let actionBadge = `<span class="badge hold">TUT</span>`;
+        if (p.action === "EXIT_ALL") actionBadge = `<span class="badge exit">🔴 TÜMÜNÜ SAT</span>`;
+        else if (p.action === "TAKE_PROFIT_HALF") actionBadge = `<span class="badge take_profit">🟢 %50 KÂR SAT</span>`;
+        else if (p.action === "BUY_MORE") actionBadge = `<span class="badge buy_more">🔵 EKLEME YAP</span>`;
+
+        return `
+          <div class="card">
+            <div class="card-top">
+              <div class="ticker-row">
+                <span class="ticker">${p.ticker}</span>
+                ${actionBadge}
+              </div>
+              <span class="conf">${p.quantity ?? 0} Adet</span>
+            </div>
+            <div class="metrics">
+              <div class="metric"><div class="lbl">Maliyet</div><div class="val">${p.entry_price ?? '-'}</div></div>
+              <div class="metric"><div class="lbl">Güncel</div><div class="val">${p.current_price ?? '-'}</div></div>
+              <div class="metric ${pnlClass}"><div class="lbl">K/Z (%)</div><div class="val">%${p.pnl_pct ?? 0}</div></div>
+              <div class="metric stop"><div class="lbl">İz Süren Stop</div><div class="val">${p.trailing_stop_price ?? '-'}</div></div>
+            </div>
+            <div class="reasoning">${p.reasoning || ''}</div>
+            <div class="card-footer">
+              <span>Kar/Zarar: ${p.pnl_amount ?? 0} TL</span>
+              <span>${timeAgo(p.updated_at?.toDate ? p.updated_at.toDate() : null)}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+      return;
+    }
+
+    // Sinyal Görünümü (Tümü / Long / Short)
+    portfolioFormContainer.style.display = "none";
     const filtered = currentFilter === "all"
       ? allSignals
       : allSignals.filter(s => s.direction === currentFilter);
@@ -208,6 +323,7 @@
     `).join("");
   }
 
+  // Sekmeler Arası Geçiş
   document.querySelectorAll(".tab").forEach(tab => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
@@ -217,9 +333,30 @@
     });
   });
 
-  // Firestore'u gerçek zamanlı dinle
-  const q = collection(db, "signals");
-  onSnapshot(q, (snapshot) => {
+  // Pozisyon Ekleme Form Gönderimi
+  document.getElementById("addPositionForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    let ticker = document.getElementById("ticker").value.toUpperCase().trim();
+    if (!ticker.endsWith(".IS")) ticker += ".IS";
+
+    try {
+      await addDoc(collection(db, "user_positions"), {
+        ticker: ticker,
+        entry_price: parseFloat(document.getElementById("entryPrice").value),
+        quantity: parseInt(document.getElementById("quantity").value),
+        status: "OPEN",
+        created_at: new Date()
+      });
+      showToast("Pozisyon başarıyla eklendi!");
+      e.target.reset();
+    } catch (err) {
+      console.error(err);
+      showToast("Pozisyon eklenirken hata oluştu.");
+    }
+  });
+
+  // Firestore Dinleyicileri (Real-time)
+  onSnapshot(collection(db, "signals"), (snapshot) => {
     allSignals = snapshot.docs.map(d => d.data());
     updatedText.textContent = "son güncelleme: " + new Date().toLocaleTimeString("tr-TR");
     render();
@@ -228,11 +365,15 @@
     console.error(err);
   });
 
+  onSnapshot(collection(db, "portfolio_alerts"), (snapshot) => {
+    portfolioAlerts = snapshot.docs.map(d => d.data());
+    render();
+  });
+
   // --- Service Worker & Bildirim Kurulumu ---
   async function registerSW() {
     if ("serviceWorker" in navigator) {
       try {
-        // GitHub Pages alt yolu (/bist100-scanner/) gözetilerek Service Worker kaydediliyor
         const reg = await navigator.serviceWorker.register("./firebase-messaging-sw.js");
         return reg;
       } catch (err) {
@@ -290,7 +431,6 @@
       }
     });
 
-    // Uygulama açıkken gelen bildirimler
     try {
       const messaging = getMessaging(app);
       onMessage(messaging, (payload) => {
@@ -299,7 +439,6 @@
     } catch (e) { /* messaging henüz kurulmamış olabilir */ }
   }
 
-  // Sayfa yüklendiğinde Service Worker'ı önceden kaydet
   registerSW();
   setupNotifications();
 </script>
