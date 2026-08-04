@@ -27,7 +27,7 @@ jobs:
       - name: Bağımlılıkları yükle
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --no-build-isolation -r requirements.txt
 
       - name: Scanner'ı çalıştır
         env:
