@@ -9,14 +9,14 @@ import logging
 import pandas as pd
 import yfinance as yf
 import indicators
-from decision_engine import evaluate_stock
+import decision_engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("backtest")
 
 
 def apply_indicators(df):
-    """indicators.py içindeki mevcut indikatör ekleme fonksiyonlarını dinamik olarak çağırır."""
+    """indicators.py modülünü dinamik olarak çağırır."""
     if hasattr(indicators, "add_all_indicators"):
         return indicators.add_all_indicators(df)
     elif hasattr(indicators, "calculate_indicators"):
@@ -24,13 +24,27 @@ def apply_indicators(df):
     elif hasattr(indicators, "add_indicators"):
         return indicators.add_indicators(df)
     else:
-        # Eğer özel bir wrapper fonksiyonu yoksa indikatörleri sırayla ekler
         if hasattr(indicators, "add_rsi"): df = indicators.add_rsi(df)
         if hasattr(indicators, "add_macd"): df = indicators.add_macd(df)
         if hasattr(indicators, "add_adx"): df = indicators.add_adx(df)
         if hasattr(indicators, "add_ema"): df = indicators.add_ema(df)
         if hasattr(indicators, "add_obv"): df = indicators.add_obv(df)
         return df
+
+
+def run_decision_engine(df):
+    """decision_engine.py içindeki analiz fonksiyonunu dinamik olarak bulur ve çalıştırır."""
+    if hasattr(decision_engine, "evaluate_stock"):
+        return decision_engine.evaluate_stock(df)
+    elif hasattr(decision_engine, "evaluate"):
+        return decision_engine.evaluate(df)
+    elif hasattr(decision_engine, "analyze_stock"):
+        return decision_engine.analyze_stock(df)
+    elif hasattr(decision_engine, "analyze"):
+        return decision_engine.analyze(df)
+    elif hasattr(decision_engine, "generate_signal"):
+        return decision_engine.generate_signal(df)
+    return None
 
 
 def load_watchlist():
@@ -74,7 +88,7 @@ def run_backtest(period="1y"):
                 current_low = float(current_bar["Low"])
 
                 if not in_position:
-                    sig = evaluate_stock(sub_df)
+                    sig = run_decision_engine(sub_df)
                     if sig and sig.get("direction") in ["long", "short"]:
                         in_position = True
                         direction = sig["direction"]
@@ -86,20 +100,20 @@ def run_backtest(period="1y"):
                     profit_pct = 0.0
 
                     if direction == "long":
-                        if current_low <= stop_loss and stop_loss > 0:
+                        if stop_loss > 0 and current_low <= stop_loss:
                             profit_pct = ((stop_loss - entry_price) / entry_price) * 100
                             trade_closed = True
                             losing_trades += 1
-                        elif current_high >= take_profit and take_profit > 0:
+                        elif take_profit > 0 and current_high >= take_profit:
                             profit_pct = ((take_profit - entry_price) / entry_price) * 100
                             trade_closed = True
                             winning_trades += 1
                     elif direction == "short":
-                        if current_high >= stop_loss and stop_loss > 0:
+                        if stop_loss > 0 and current_high >= stop_loss:
                             profit_pct = ((entry_price - stop_loss) / entry_price) * 100
                             trade_closed = True
                             losing_trades += 1
-                        elif current_low <= take_profit and take_profit > 0:
+                        elif take_profit > 0 and current_low <= take_profit:
                             profit_pct = ((entry_price - take_profit) / entry_price) * 100
                             trade_closed = True
                             winning_trades += 1
