@@ -18,7 +18,6 @@ logger = logging.getLogger("portfolio_tracker")
 # Firebase Başlatma
 def init_firestore():
     if not firebase_admin._apps:
-        # Service Account Key çevresel değişkenden veya varsayılan Firebase ortamından alınır
         cred = credentials.ApplicationDefault()
         firebase_admin.initialize_app(cred)
     return firestore.client()
@@ -42,22 +41,39 @@ def evaluate_position(position):
     qty = float(position.get("quantity", 0))
 
     try:
-        # DÜZELTME: period="3m" yerine period="3mo" yapıldı
         df = yf.download(ticker, period="3mo", interval="1d", progress=False)
         if df.empty or len(df) < 20:
             return None
 
+        # MultiIndex sütun yapısını temizle
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
         if hasattr(indicators, "add_all_indicators"):
             df = indicators.add_all_indicators(df)
 
-        current_close = float(df["Close"].iloc[-1])
-        recent_max_high = float(df["High"].tail(10).max())
-        atr14 = float(df.get("ATRr_14", df["Close"] * 0.02).iloc[-1])
-        ema20 = float(df.get("EMA_20", df["Close"].ewm(span=20).mean()).iloc[-1])
-        rsi14 = float(df.get("RSI_14", 50).iloc[-1])
+        # Sütunların Seri (Series) olduğundan emin ol
+        close_series = df["Close"].squeeze()
+        high_series = df["High"].squeeze()
+
+        current_close = float(close_series.iloc[-1])
+        recent_max_high = float(high_series.tail(10).max())
+
+        # Indikatör değerlerini güvenli alma
+        if "ATRr_14" in df.columns:
+            atr14 = float(df["ATRr_14"].squeeze().iloc[-1])
+        else:
+            atr14 = float(current_close * 0.02)
+
+        if "EMA_20" in df.columns:
+            ema20 = float(df["EMA_20"].squeeze().iloc[-1])
+        else:
+            ema20 = float(close_series.ewm(span=20).mean().iloc[-1])
+
+        if "RSI_14" in df.columns:
+            rsi14 = float(df["RSI_14"].squeeze().iloc[-1])
+        else:
+            rsi14 = 50.0
 
         pnl_pct = ((current_close - entry_price) / entry_price) * 100
         pnl_amount = (current_close - entry_price) * qty
@@ -108,7 +124,6 @@ def run_tracker():
         for pos in positions:
             res = evaluate_position(pos)
             if res:
-                # Sonuçları Firestore 'portfolio_alerts' koleksiyonuna güncelle
                 db.collection("portfolio_alerts").document(pos["id"]).set(res)
                 logger.info(f"Güncellendi: {res['ticker']} -> {res['action']}")
 
