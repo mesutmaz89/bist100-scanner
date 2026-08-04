@@ -1,6 +1,6 @@
 """
 backtest.py
-Decision Engine stratejisini BIST100 hisseleri üzerinde 1 yıllık geçmiş veriyle test eder.
+Decision Engine + Trailing Stop + BIST100 Endeks Filtresini BIST hisselerinde simüle eder.
 """
 
 import os
@@ -16,7 +16,6 @@ logger = logging.getLogger("backtest")
 
 
 def apply_indicators(df):
-    """indicators.py modülünü dinamik olarak çağırır."""
     if hasattr(indicators, "add_all_indicators"):
         return indicators.add_all_indicators(df)
     elif hasattr(indicators, "calculate_indicators"):
@@ -24,7 +23,6 @@ def apply_indicators(df):
     elif hasattr(indicators, "add_indicators"):
         return indicators.add_indicators(df)
     else:
-        # Manuel gösterge ekleme (varsayılan)
         if hasattr(indicators, "add_rsi"): df = indicators.add_rsi(df)
         if hasattr(indicators, "add_macd"): df = indicators.add_macd(df)
         if hasattr(indicators, "add_adx"): df = indicators.add_adx(df)
@@ -34,7 +32,6 @@ def apply_indicators(df):
 
 
 def parse_row_to_indicators_dict(sub_df):
-    """DataFrame'in son satırını decision_engine'in beklediği dict formatına dönüştürür."""
     if len(sub_df) < 2:
         return None
 
@@ -44,7 +41,7 @@ def parse_row_to_indicators_dict(sub_df):
     close = float(row.get("Close", 0))
     ema50 = float(row.get("EMA_50", row.get("ema50", 0)))
     ema200 = float(row.get("EMA_200", row.get("ema200", 0)))
-    adx14 = float(row.get("ADX_14", row.get("adx14", 25)))  # Varsayılan trend gücü
+    adx14 = float(row.get("ADX_14", row.get("adx14", 25)))
     rsi14 = float(row.get("RSI_14", row.get("rsi14", 50)))
     
     macd_hist = float(row.get("MACDh_12_26_9", row.get("macd_hist", 0)))
@@ -55,7 +52,7 @@ def parse_row_to_indicators_dict(sub_df):
     obv = float(row.get("OBV", 0))
     obv_prev = float(prev_row.get("OBV", 0))
 
-    atr14 = float(row.get("ATRr_14", row.get("atr14", close * 0.02)))  # Yoksa %2 varsayılan
+    atr14 = float(row.get("ATRr_14", row.get("atr14", close * 0.02)))
 
     return {
         "close": close,
@@ -99,8 +96,16 @@ def load_watchlist():
 
 
 def run_backtest(period="1y"):
+    # 1. BIST100 Endeks verisini indir ve hazırla
+    logger.info("BIST100 (XU100) endeks verisi indiriliyor...")
+    index_df = yf.download("XU100.IS", period=period, interval="1d", progress=False)
+    if not index_df.empty:
+        if isinstance(index_df.columns, pd.MultiIndex):
+            index_df.columns = index_df.columns.get_level_values(0)
+        index_df["EMA_50"] = index_df["Close"].ewm(span=50).mean()
+
     tickers = load_watchlist()
-    logger.info(f"{len(tickers)} hisse için {period} süresince backtest başlatılıyor...")
+    logger.info(f"{len(tickers)} hisse için {period} süresince Trailing Stop backtest'i başlatılıyor...")
 
     total_trades = 0
     winning_trades = 0
@@ -121,7 +126,8 @@ def run_backtest(period="1y"):
             in_position = False
             entry_price = 0.0
             stop_loss = 0.0
-            take_profit = 0.0
+            highest_price = 0.0
+            atr_val = 0.0
             direction = None
 
             for i in range(35, len(df)):
@@ -129,39 +135,47 @@ def run_backtest(period="1y"):
                 current_bar = df.iloc[i]
                 current_high = float(current_bar["High"])
                 current_low = float(current_bar["Low"])
+                current_close = float(current_bar["Close"])
+
+                # O güne denk gelen endeks durumunu kontrol et
+                index_sub = index_df.iloc[:i+1] if not index_df.empty and i < len(index_df) else None
+                index_uptrend = decision_engine.check_index_trend(index_sub) if index_sub is not None else True
 
                 if not in_position:
                     ind_dict = parse_row_to_indicators_dict(sub_df)
                     if ind_dict:
-                        sig = decision_engine.build_signal(ticker, ind_dict)
+                        sig = decision_engine.build_signal(ticker, ind_dict, index_uptrend=index_uptrend)
                         if sig and sig.get("direction") in ["long", "short"]:
                             in_position = True
                             direction = sig["direction"]
-                            entry_price = sig.get("entry", current_bar["Close"])
+                            entry_price = sig.get("entry", current_close)
                             stop_loss = sig.get("stop_loss", 0.0)
-                            take_profit = sig.get("take_profit", 0.0)
+                            highest_price = current_high
+                            atr_val = sig.get("atr", entry_price * 0.02)
                 else:
                     trade_closed = False
                     profit_pct = 0.0
 
                     if direction == "long":
-                        if stop_loss > 0 and current_low <= stop_loss:
+                        # Zirve fiyatı güncelle
+                        if current_high > highest_price:
+                            highest_price = current_high
+                            
+                            # TRailing STOP GÜNCELLEME: Fiyat tepe yaptıkça stop'u yukarı çek
+                            # +1.0 ATR kâra ulaşınca stop'u giriş fiyatına (başabaş) getir
+                            if (highest_price - entry_price) >= (1.0 * atr_val):
+                                candidate_stop = highest_price - (1.0 * atr_val)
+                                if candidate_stop > stop_loss:
+                                    stop_loss = candidate_stop
+
+                        # Stop Kontrolü
+                        if current_low <= stop_loss:
                             profit_pct = ((stop_loss - entry_price) / entry_price) * 100
                             trade_closed = True
-                            losing_trades += 1
-                        elif take_profit > 0 and current_high >= take_profit:
-                            profit_pct = ((take_profit - entry_price) / entry_price) * 100
-                            trade_closed = True
-                            winning_trades += 1
-                    elif direction == "short":
-                        if stop_loss > 0 and current_high >= stop_loss:
-                            profit_pct = ((entry_price - stop_loss) / entry_price) * 100
-                            trade_closed = True
-                            losing_trades += 1
-                        elif take_profit > 0 and current_low <= take_profit:
-                            profit_pct = ((entry_price - take_profit) / entry_price) * 100
-                            trade_closed = True
-                            winning_trades += 1
+                            if profit_pct > 0:
+                                winning_trades += 1
+                            else:
+                                losing_trades += 1
 
                     if trade_closed:
                         total_trades += 1
@@ -174,7 +188,7 @@ def run_backtest(period="1y"):
     win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
 
     print("\n" + "="*45)
-    print(" 📊 BACKTEST SONUÇLARI (1 YILLIK SIMÜLASYON)")
+    print(" 📊 BACKTEST SONUÇLARI (TRAILING STOP & ENDEKS FİLTRESİ)")
     print("="*45)
     print(f" Toplam Açılan İşlem  : {total_trades}")
     print(f" Başarılı İşlemler    : {winning_trades}")
