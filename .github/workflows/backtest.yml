@@ -1,19 +1,40 @@
 name: Run Backtest
 
 on:
-  workflow_dispatch: # Manuel tetikleme butonu ekler
+  workflow_dispatch:
+    inputs:
+      period:
+        description: "Geriye dönük test süresi (örn. 1y, 2y, 6mo)"
+        required: false
+        default: "1y"
+      trail_trigger:
+        description: "Kaç ATR kârda trailing stop devreye girsin"
+        required: false
+        default: "1.0"
+      trail_dist:
+        description: "Trailing stop zirveden kaç ATR geride tutulsun"
+        required: false
+        default: "1.0"
+      exit_mode:
+        description: "Çıkış tarzı"
+        required: false
+        default: "trailing"
+        type: choice
+        options:
+          - trailing
+          - fixed_tp
 
 jobs:
   backtest:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install Dependencies
         run: |
@@ -21,4 +42,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Backtest Script
-        run: python scripts/backtest.py
+        run: >
+          python scripts/backtest.py
+          --period "${{ github.event.inputs.period }}"
+          --trail-trigger "${{ github.event.inputs.trail_trigger }}"
+          --trail-dist "${{ github.event.inputs.trail_dist }}"
+          --exit-mode "${{ github.event.inputs.exit_mode }}"
