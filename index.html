@@ -106,9 +106,14 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-    // Firebase Konfigürasyonu (Projenize ait bilgileri buraya ekleyin)
+    // Entegre Edilen Firebase Konfigürasyonu
     const firebaseConfig = {
-      // apiKey, authDomain, projectId vs. buraya gelecek
+      apiKey: "AIzaSyAUdkTkbut1KrO-IAOPGfAUG0fx0YCvY2A",
+      authDomain: "bist100-scanner.firebaseapp.com",
+      projectId: "bist100-scanner",
+      storageBucket: "bist100-scanner.firebasestorage.app",
+      messagingSenderId: "1034148308576",
+      appId: "1:1034148308576:web:e6b5a87fa5d34a45924505"
     };
 
     const app = initializeApp(firebaseConfig);
