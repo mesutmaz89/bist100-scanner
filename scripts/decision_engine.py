@@ -78,6 +78,11 @@ def build_signal(ticker: str, indicators: dict, index_uptrend: bool = True) -> d
         reasons.append("negatif RSI uyumsuzluğu (risk)")
 
     # --- SHORT puanlama ---
+    # NOT: Backtest sonuçlarına göre (1y ve 2y, fixed_tp) SHORT sinyalleri sürekli
+    # negatif beklenti üretiyor (-0.11R ile -0.16R arası) ve LONG'un beklentisini
+    # aşağı çekiyor. Bu yüzden SHORT sinyal üretimi devre dışı bırakıldı.
+    # short_score hâlâ hesaplanıyor (ileride yeniden değerlendirilebilir/loglanabilir)
+    # ama build_signal artık asla "short" döndürmüyor.
     short_score = 0
     if t.get("price_above_ema50") is False and t.get("ema50_above_ema200") is False:
         short_score += 2
@@ -90,24 +95,21 @@ def build_signal(ticker: str, indicators: dict, index_uptrend: bool = True) -> d
     if v.get("above_avg") and long_score < 2:
         short_score += 1
 
-    if long_score >= 4 and long_score >= short_score:
+    if long_score >= 4:
         direction = "long"
         score = long_score
         entry = close
-        # Başlangıç Stop: 1.2 ATR / Hedef: Trailing Stop ile izlenecek (varsayılan 2.5 ATR)
+        # Backtest'te doğrulanan sabit hedef/stop oranı (fixed_tp, trailing DEĞİL):
+        # Stop: 1.2 ATR / Hedef: 2.5 ATR -> ~2.08:1 R/R, backtest'te +0.21/+0.25R
+        # beklenti verdi (2y, LONG-only, fixed_tp senaryosu)
         stop_loss = round(entry - 1.2 * atr, 4) if atr else None
         take_profit = round(entry + 2.5 * atr, 4) if atr else None
-    elif short_score >= 4 and short_score > long_score:
-        direction = "short"
-        score = short_score
-        entry = close
-        stop_loss = round(entry + 1.2 * atr, 4) if atr else None
-        take_profit = round(entry - 2.5 * atr, 4) if atr else None
     else:
         return {
             "ticker": ticker,
             "direction": "none",
-            "reasoning": "net kurulum yok (skor eşiği altında)",
+            "reasoning": "net kurulum yok (skor eşiği altında) veya SHORT filtrelendi",
+            "short_score_debug": short_score,
         }
 
     risk = abs(entry - stop_loss) if stop_loss else None

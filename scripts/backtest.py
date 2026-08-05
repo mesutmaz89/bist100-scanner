@@ -106,18 +106,19 @@ def load_watchlist():
 
 
 def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mode="trailing",
-                  long_only=False):
+                  long_only=False, commission_pct=0.0):
     """
     trail_trigger_atr: kaç ATR kâra ulaşınca trailing stop devreye girsin
     trail_dist_atr   : trailing stop, zirveden kaç ATR geride tutulsun
     exit_mode        : "trailing" (varsayılan) veya "fixed_tp"
-                        (fixed_tp: decision_engine'in take_profit seviyesinde sabit çıkış,
-                         trailing hiç kullanılmaz — hangi çıkış tarzının daha iyi
-                         beklenti verdiğini karşılaştırmak için)
-    long_only        : True ise SHORT sinyalleri tamamen yok sayılır (sadece LONG test edilir)
+    long_only        : True ise SHORT sinyalleri tamamen yok sayılır
+    commission_pct   : Gidiş+dönüş toplam maliyet varsayımı (komisyon + BSMV + kayma),
+                        fiyatın yüzdesi olarak. Örn. 0.3 -> her işlemde %0.3 maliyet.
+                        Bu, R-multiple'dan maliyetin risk birimine oranı kadar düşülerek uygulanır.
     """
     logger.info(f"Parametreler: period={period}, trail_trigger={trail_trigger_atr}ATR, "
-                f"trail_dist={trail_dist_atr}ATR, exit_mode={exit_mode}, long_only={long_only}")
+                f"trail_dist={trail_dist_atr}ATR, exit_mode={exit_mode}, long_only={long_only}, "
+                f"commission_pct={commission_pct}")
 
     logger.info("BIST100 (XU100) endeks verisi indiriliyor...")
     index_df = yf.download("XU100.IS", period=period, interval="1d", progress=False)
@@ -229,6 +230,11 @@ def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mo
                         else:
                             r = (entry_price - exit_price) / initial_risk
 
+                        # Komisyon + BSMV + kayma maliyetini R birimine çevirip düş
+                        if commission_pct > 0:
+                            cost_r = (commission_pct / 100 * entry_price) / initial_risk
+                            r -= cost_r
+
                         r_multiples.append(r)
                         r_by_direction[direction].append(r)
                         total_trades += 1
@@ -295,6 +301,8 @@ if __name__ == "__main__":
     parser.add_argument("--exit-mode", choices=["trailing", "fixed_tp"], default="trailing")
     parser.add_argument("--long-only", action="store_true",
                          help="SHORT sinyallerini yok say, sadece LONG test et")
+    parser.add_argument("--commission-pct", type=float, default=0.0,
+                         help="Gidiş+dönüş toplam maliyet varsayımı (yüzde). Örn. 0.3")
     args = parser.parse_args()
 
     run_backtest(
@@ -303,4 +311,5 @@ if __name__ == "__main__":
         trail_dist_atr=args.trail_dist,
         exit_mode=args.exit_mode,
         long_only=args.long_only,
+        commission_pct=args.commission_pct,
     )
