@@ -28,6 +28,10 @@ on:
         required: false
         default: false
         type: boolean
+      commission_pct:
+        description: "Gidiş+dönüş toplam maliyet varsayımı (%) - örn. 0.3"
+        required: false
+        default: "0.0"
 
 jobs:
   backtest:
@@ -53,4 +57,5 @@ jobs:
           --trail-trigger "${{ github.event.inputs.trail_trigger }}"
           --trail-dist "${{ github.event.inputs.trail_dist }}"
           --exit-mode "${{ github.event.inputs.exit_mode }}"
+          --commission-pct "${{ github.event.inputs.commission_pct }}"
           ${{ github.event.inputs.long_only == 'true' && '--long-only' || '' }}
