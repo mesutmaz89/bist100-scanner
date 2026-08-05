@@ -115,7 +115,9 @@ def run_backtest(period="1y"):
     total_trades = 0
     winning_trades = 0
     losing_trades = 0
-    total_return_pct = 0.0
+    r_multiples = []          # her işlemin "kaç R" kazandırdığı (risk birimi cinsinden)
+    RISK_PER_TRADE_PCT = 1.0  # her işlemde sermayenin %1'i riske edilir (varsayım)
+    equity = 100.0            # bileşik getiri simülasyonu için başlangıç sermayesi (100 birim)
 
     for ticker in tickers:
         try:
@@ -131,19 +133,19 @@ def run_backtest(period="1y"):
             in_position = False
             entry_price = 0.0
             stop_loss = 0.0
-            highest_price = 0.0
+            initial_risk = 0.0   # giriş anındaki stop mesafesi (R birimi = bu mesafe)
+            extreme_price = 0.0  # long'da en yüksek, short'ta en düşük fiyat
             atr_val = 0.0
             direction = None
 
             for i in range(35, len(df)):
-                sub_df = df.iloc[:i+1]
+                sub_df = df.iloc[:i + 1]
                 current_bar = df.iloc[i]
                 current_high = float(current_bar["High"])
                 current_low = float(current_bar["Low"])
                 current_close = float(current_bar["Close"])
 
-                # O güne denk gelen endeks durumunu kontrol et
-                index_sub = index_df.iloc[:i+1] if not index_df.empty and i < len(index_df) else None
+                index_sub = index_df.iloc[:i + 1] if not index_df.empty and i < len(index_df) else None
                 index_uptrend = decision_engine.check_index_trend(index_sub) if index_sub is not None else True
 
                 if not in_position:
@@ -155,52 +157,78 @@ def run_backtest(period="1y"):
                             direction = sig["direction"]
                             entry_price = sig.get("entry", current_close)
                             stop_loss = sig.get("stop_loss", 0.0)
-                            highest_price = current_high
+                            initial_risk = abs(entry_price - stop_loss) or (entry_price * 0.01)
+                            extreme_price = current_high if direction == "long" else current_low
                             atr_val = sig.get("atr", entry_price * 0.02)
                 else:
                     trade_closed = False
-                    profit_pct = 0.0
+                    exit_price = None
 
                     if direction == "long":
-                        # Zirve fiyatı güncelle
-                        if current_high > highest_price:
-                            highest_price = current_high
-                            
-                            # TRailing STOP GÜNCELLEME: Fiyat tepe yaptıkça stop'u yukarı çek
-                            # +1.0 ATR kâra ulaşınca stop'u giriş fiyatına (başabaş) getir
-                            if (highest_price - entry_price) >= (1.0 * atr_val):
-                                candidate_stop = highest_price - (1.0 * atr_val)
+                        if current_high > extreme_price:
+                            extreme_price = current_high
+                            if (extreme_price - entry_price) >= (1.0 * atr_val):
+                                candidate_stop = extreme_price - (1.0 * atr_val)
                                 if candidate_stop > stop_loss:
                                     stop_loss = candidate_stop
-
-                        # Stop Kontrolü
                         if current_low <= stop_loss:
-                            profit_pct = ((stop_loss - entry_price) / entry_price) * 100
+                            exit_price = stop_loss
                             trade_closed = True
-                            if profit_pct > 0:
-                                winning_trades += 1
-                            else:
-                                losing_trades += 1
+
+                    elif direction == "short":
+                        if current_low < extreme_price:
+                            extreme_price = current_low
+                            if (entry_price - extreme_price) >= (1.0 * atr_val):
+                                candidate_stop = extreme_price + (1.0 * atr_val)
+                                if candidate_stop < stop_loss:
+                                    stop_loss = candidate_stop
+                        if current_high >= stop_loss:
+                            exit_price = stop_loss
+                            trade_closed = True
 
                     if trade_closed:
+                        # R-multiple: bu işlem başlangıç riskinin kaç katı kazandırdı/kaybettirdi
+                        if direction == "long":
+                            r = (exit_price - entry_price) / initial_risk
+                        else:
+                            r = (entry_price - exit_price) / initial_risk
+
+                        r_multiples.append(r)
                         total_trades += 1
-                        total_return_pct += profit_pct
+                        if r > 0:
+                            winning_trades += 1
+                        else:
+                            losing_trades += 1
+
+                        # Bileşik getiri: her işlemde sermayenin %1'i risk edilir
+                        equity *= (1 + (RISK_PER_TRADE_PCT / 100) * r)
+
                         in_position = False
 
         except Exception as e:
             logger.error(f"{ticker} hatası: {e}")
 
     win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+    avg_r = sum(r_multiples) / len(r_multiples) if r_multiples else 0.0
+    avg_win_r = sum(r for r in r_multiples if r > 0) / winning_trades if winning_trades else 0.0
+    avg_loss_r = sum(r for r in r_multiples if r <= 0) / losing_trades if losing_trades else 0.0
+    equity_return_pct = equity - 100.0
 
-    print("\n" + "="*45)
+    print("\n" + "=" * 45)
     print(" 📊 BACKTEST SONUÇLARI (TRAILING STOP & ENDEKS FİLTRESİ)")
-    print("="*45)
-    print(f" Toplam Açılan İşlem  : {total_trades}")
-    print(f" Başarılı İşlemler    : {winning_trades}")
-    print(f" Başarısız İşlemler   : {losing_trades}")
+    print("=" * 45)
+    print(f" Toplam Açılan İşlem   : {total_trades}")
+    print(f" Başarılı İşlemler     : {winning_trades}")
+    print(f" Başarısız İşlemler    : {losing_trades}")
     print(f" Başarı Oranı (WinRate): %{win_rate:.2f}")
-    print(f" Kümülatif Getiri     : %{total_return_pct:.2f}")
-    print("="*45 + "\n")
+    print(f" Ortalama Kazanç (R)   : {avg_win_r:+.2f}R")
+    print(f" Ortalama Kayıp (R)    : {avg_loss_r:+.2f}R")
+    print(f" Beklenti (Expectancy) : {avg_r:+.2f}R / işlem")
+    print(f" Bileşik Getiri (%{RISK_PER_TRADE_PCT} risk/işlem): %{equity_return_pct:+.2f}")
+    print("=" * 45)
+    print(" Not: 'Beklenti' negatifse, kazanma oranı yüksek olsa bile strateji")
+    print(" ortalamada para kaybettiriyor demektir (kayıplar kazançlardan büyük).")
+    print("=" * 45 + "\n")
 
 
 if __name__ == "__main__":
