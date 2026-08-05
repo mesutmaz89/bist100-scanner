@@ -65,24 +65,29 @@ def evaluate_position(position):
 
         pnl_pct = ((current_close - entry_price) / entry_price) * 100
         pnl_amount = (current_close - entry_price) * qty
-        trailing_stop_price = round(recent_max_high - (1.2 * atr14), 2)
+
+        # BACKTEST BULGUSU (2y, LONG-only, fixed_tp): sabit hedef/stop, trailing stop'tan
+        # daha iyi beklenti verdi (+0.18R komisyon sonrası). Bu yüzden trailing stop yerine
+        # decision_engine.py ile AYNI sabit oranlar kullanılıyor: Stop 1.2 ATR / Hedef 2.5 ATR.
+        stop_loss_fixed = round(entry_price - (1.2 * atr14), 2)
+        take_profit_fixed = round(entry_price + (2.5 * atr14), 2)
 
         action = "HOLD"
         alert_level = "INFO"
-        reasoning = "Pozisyon sağlıklı, trend devam ediyor."
+        reasoning = "Pozisyon sağlıklı, hedef/stop aralığında bekliyor."
 
-        if current_close <= trailing_stop_price or current_close <= (entry_price - 1.2 * atr14):
+        if current_close <= stop_loss_fixed:
             action = "EXIT_ALL"
             alert_level = "HIGH"
-            reasoning = f"Fiyat Trailing Stop seviyesine ({trailing_stop_price} TL) geriledi. Pozisyondan çık!"
-        elif current_close >= (entry_price + 1.8 * atr14):
-            action = "TAKE_PROFIT_HALF"
+            reasoning = f"Fiyat stop seviyesine ({stop_loss_fixed} TL) geriledi. Pozisyondan çık."
+        elif current_close >= take_profit_fixed:
+            action = "TAKE_PROFIT_FULL"
             alert_level = "MEDIUM"
-            reasoning = f"Hisse +1.8 ATR kâra ulaştı (%{pnl_pct:.1f}). %50 kâr satışı yap."
+            reasoning = f"Hisse hedefe ({take_profit_fixed} TL) ulaştı (%{pnl_pct:.1f}). Kâr realize edilebilir."
         elif entry_price <= current_close <= (entry_price + 0.5 * atr14) and abs(current_close - ema20) / ema20 < 0.015 and rsi14 < 55:
             action = "BUY_MORE"
             alert_level = "MEDIUM"
-            reasoning = "Hisse trend desteğinde. Kademeli ekleme yapılabilir."
+            reasoning = "Hisse trend desteğinde. Kademeli ekleme yapılabilir. (Not: bu öneri backtest'te doğrulanmadı, deneysel.)"
 
         return {
             "position_id": position["id"],
@@ -94,7 +99,9 @@ def evaluate_position(position):
             "pnl_amount": round(pnl_amount, 2),
             "action": action,
             "alert_level": alert_level,
-            "trailing_stop_price": trailing_stop_price,
+            "stop_loss": stop_loss_fixed,
+            "take_profit": take_profit_fixed,
+            "trailing_stop_price": stop_loss_fixed,  # geriye dönük uyumluluk (dashboard eski alan adını da okuyabilir)
             "reasoning": reasoning,
             "updated_at": firestore.SERVER_TIMESTAMP
         }
