@@ -105,7 +105,8 @@ def load_watchlist():
     return formatted_tickers
 
 
-def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mode="trailing"):
+def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mode="trailing",
+                  long_only=False):
     """
     trail_trigger_atr: kaç ATR kâra ulaşınca trailing stop devreye girsin
     trail_dist_atr   : trailing stop, zirveden kaç ATR geride tutulsun
@@ -113,9 +114,10 @@ def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mo
                         (fixed_tp: decision_engine'in take_profit seviyesinde sabit çıkış,
                          trailing hiç kullanılmaz — hangi çıkış tarzının daha iyi
                          beklenti verdiğini karşılaştırmak için)
+    long_only        : True ise SHORT sinyalleri tamamen yok sayılır (sadece LONG test edilir)
     """
     logger.info(f"Parametreler: period={period}, trail_trigger={trail_trigger_atr}ATR, "
-                f"trail_dist={trail_dist_atr}ATR, exit_mode={exit_mode}")
+                f"trail_dist={trail_dist_atr}ATR, exit_mode={exit_mode}, long_only={long_only}")
 
     logger.info("BIST100 (XU100) endeks verisi indiriliyor...")
     index_df = yf.download("XU100.IS", period=period, interval="1d", progress=False)
@@ -169,7 +171,8 @@ def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mo
                     ind_dict = parse_row_to_indicators_dict(sub_df)
                     if ind_dict:
                         sig = decision_engine.build_signal(ticker, ind_dict, index_uptrend=index_uptrend)
-                        if sig and sig.get("direction") in ["long", "short"]:
+                        allowed_directions = ["long"] if long_only else ["long", "short"]
+                        if sig and sig.get("direction") in allowed_directions:
                             in_position = True
                             direction = sig["direction"]
                             entry_price = sig.get("entry", current_close)
@@ -263,8 +266,10 @@ def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mo
     print(f" Başarı Oranı (WinRate): %{win_rate:.2f}")
     print(f" Ortalama Kazanç (R)   : {avg_win_r:+.2f}R")
     print(f" Ortalama Kayıp (R)    : {avg_loss_r:+.2f}R")
-    print(f" Beklenti (Expectancy) : {avg_r:+.2f}R / işlem")
-    print(f" Bileşik Getiri (%{RISK_PER_TRADE_PCT} risk/işlem): %{equity_return_pct:+.2f}")
+    print(f" Beklenti (Expectancy) : {avg_r:+.2f}R / işlem  <-- EN GÜVENİLİR METRİK")
+    print(f" Bileşik Getiri (%{RISK_PER_TRADE_PCT} risk/işlem): %{equity_return_pct:+.2f}  "
+          f"(DİKKAT: işlemler art arda/tek pozisyon varsayımıyla hesaplandı, "
+          f"gerçekte eşzamanlı açık pozisyonlar olacağı için gerçek getiri bundan düşük olur)")
     print("-" * 50)
     print(f" LONG  : {_dir_stats(r_by_direction['long'])}")
     print(f" SHORT : {_dir_stats(r_by_direction['short'])}")
@@ -288,6 +293,8 @@ if __name__ == "__main__":
     parser.add_argument("--trail-dist", type=float, default=1.0,
                          help="Trailing stop zirveden kaç ATR geride tutulsun")
     parser.add_argument("--exit-mode", choices=["trailing", "fixed_tp"], default="trailing")
+    parser.add_argument("--long-only", action="store_true",
+                         help="SHORT sinyallerini yok say, sadece LONG test et")
     args = parser.parse_args()
 
     run_backtest(
@@ -295,4 +302,5 @@ if __name__ == "__main__":
         trail_trigger_atr=args.trail_trigger,
         trail_dist_atr=args.trail_dist,
         exit_mode=args.exit_mode,
+        long_only=args.long_only,
     )
