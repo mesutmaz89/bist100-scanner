@@ -25,7 +25,7 @@ sys.path.append(os.path.dirname(__file__))
 from data_fetcher import fetch_all
 from indicators import compute_indicators
 from decision_engine import build_signal, check_index_trend
-from firestore_writer import write_signals, resolve_open_signals
+from firestore_writer import write_signals, resolve_open_signals, cleanup_stale_signals
 from fcm_notifier import notify_new_signals
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -81,9 +81,15 @@ def run():
     logger.info(f"{len(active_signals)} aktif sinyal üretildi (toplam {len(signals)} hisse tarandı)")
 
     # Açık geçmiş sinyalleri bugünün kapanış fiyatlarına göre çözümle (hedef/stop kontrolü)
-    # -- bu, yeni aktif sinyal olmasa bile HER ZAMAN çalışmalı
     current_closes = {ticker: ind["close"] for ticker, ind in all_indicators.items()}
     resolve_open_signals(current_closes)
+
+    # Artık geçerli olmayan sinyalleri temizle (skor düştü VEYA eski SHORT kalıntısı)
+    # -- bu, yeni aktif sinyal olmasa bile HER ZAMAN çalışmalı
+    cleanup_stale_signals(
+        all_scanned_tickers=list(all_indicators.keys()),
+        active_tickers=[s["ticker"] for s in active_signals],
+    )
 
     if not active_signals:
         logger.info("Yeni aktif sinyal yok, çıkılıyor.")

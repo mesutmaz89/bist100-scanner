@@ -77,6 +77,41 @@ def write_signals(signals: list[dict]):
     logger.info(f"{count} adet sinyal Firestore'a yazıldı (signals + signal_history).")
 
 
+def cleanup_stale_signals(all_scanned_tickers: list, active_tickers: list):
+    """
+    Artık geçerli olmayan sinyalleri 'signals' koleksiyonundan siler:
+      1) Bu taramada değerlendirilip artık aktif olmayan hisseler (skor eşiği altına düştü)
+      2) direction='short' olan HER kayıt (SHORT sinyal üretimi tamamen kapatıldı,
+         bu eski bir kural değişikliğinden kalma "hayalet" kayıtları temizler)
+    """
+    init_firebase()
+    if not firebase_admin._apps:
+        return 0
+
+    db = firestore.client()
+    active_set = set(active_tickers)
+    deleted = 0
+    batch = db.batch()
+
+    # 1) Artık aktif olmayan taranmış hisseler
+    for ticker in all_scanned_tickers:
+        if ticker not in active_set:
+            doc_ref = db.collection("signals").document(ticker)
+            if doc_ref.get().exists:
+                batch.delete(doc_ref)
+                deleted += 1
+
+    # 2) Her ihtimale karşı: hâlâ direction='short' olan (artık üretilmeyen) kayıtlar
+    for doc_snap in db.collection("signals").where("direction", "==", "short").stream():
+        batch.delete(doc_snap.reference)
+        deleted += 1
+
+    if deleted > 0:
+        batch.commit()
+        logger.info(f"{deleted} adet geçersiz/eski sinyal 'signals' koleksiyonundan temizlendi.")
+    return deleted
+
+
 def has_open_history_entry(ticker: str) -> bool:
     """Bu ticker için zaten 'open' durumda bir geçmiş kaydı var mı? (main.py tekrar loglamamak için kullanır)"""
     init_firebase()
