@@ -23,6 +23,11 @@ on:
         options:
           - trailing
           - fixed_tp
+      long_only:
+        description: "Sadece LONG sinyalleri test et (SHORT'u devre dışı bırak)"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   backtest:
@@ -48,3 +53,4 @@ jobs:
           --trail-trigger "${{ github.event.inputs.trail_trigger }}"
           --trail-dist "${{ github.event.inputs.trail_dist }}"
           --exit-mode "${{ github.event.inputs.exit_mode }}"
+          ${{ github.event.inputs.long_only == 'true' && '--long-only' || '' }}
