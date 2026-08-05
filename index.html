@@ -28,6 +28,7 @@
     <!-- Sekme Butonları -->
     <div class="flex bg-[#161b22] p-1 rounded-xl border border-[#30363d]">
       <button onclick="switchTab('signals')" id="tab-signals" class="px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d]">Sinyaller</button>
+      <button onclick="switchTab('history')" id="tab-history" class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white">📊 Geçmiş</button>
       <button onclick="switchTab('portfolio')" id="tab-portfolio" class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white">💼 Portföyüm</button>
     </div>
   </header>
@@ -36,6 +37,32 @@
   <main id="view-signals" class="space-y-4">
     <div id="signals-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <div class="col-span-full text-center py-8 text-gray-500 card">Sinyaller yükleniyor...</div>
+    </div>
+  </main>
+
+  <!-- GEÇMİŞ SEKMESİ -->
+  <main id="view-history" class="space-y-4 hidden">
+    <div class="card p-5 grid grid-cols-2 md:grid-cols-4 gap-4 border-l-4 border-l-purple-500">
+      <div>
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Kapanan İşlem</p>
+        <p id="hist-total" class="text-lg font-bold text-white">-</p>
+      </div>
+      <div>
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Hedefe Ulaşan</p>
+        <p id="hist-wins" class="text-lg font-bold text-emerald-400">-</p>
+      </div>
+      <div>
+        <p class="text-xs text-gray-400 uppercase tracking-wider">Stop'a Takılan</p>
+        <p id="hist-losses" class="text-lg font-bold text-red-400">-</p>
+      </div>
+      <div>
+        <p class="text-xs text-gray-400 uppercase tracking-wider">İsabet Oranı</p>
+        <p id="hist-winrate" class="text-lg font-bold text-white">-</p>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500 px-1">"Açık" durumundaki sinyaller henüz hedefe veya stop'a ulaşmadı, izlenmeye devam ediyor. İsabet oranı sadece kapanmış (sonuçlanmış) sinyallere göre hesaplanır.</p>
+    <div id="history-container" class="space-y-2">
+      <div class="text-center py-8 text-gray-500 card">Geçmiş yükleniyor...</div>
     </div>
   </main>
 
@@ -112,7 +139,7 @@
   <!-- Firebase & Uygulama Mantığı -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, serverTimestamp, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     // FIREBASE KONFİGÜRASYONU
     const firebaseConfig = {
@@ -153,7 +180,7 @@
     function getBadgeStyle(action) {
       switch (action) {
         case 'EXIT_ALL': case 'SAT': return 'bg-red-500/20 text-red-400 border-red-500/30';
-        case 'TAKE_PROFIT_HALF': case 'AL': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+        case 'TAKE_PROFIT_FULL': case 'TAKE_PROFIT_HALF': case 'AL': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
         case 'BUY_MORE': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
         default: return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
       }
@@ -214,38 +241,103 @@
       renderSignals();
     });
 
+    let currentHistory = [];
+    const historyQuery = query(collection(db, "signal_history"), orderBy("updated_at", "desc"), limit(200));
+    onSnapshot(historyQuery, (snapshot) => {
+      currentHistory = [];
+      snapshot.forEach(docSnap => { currentHistory.push({ id: docSnap.id, ...docSnap.data() }); });
+      renderHistory();
+    });
+
+    function timeAgo(ts) {
+      if (!ts || !ts.toDate) return "-";
+      const date = ts.toDate();
+      const s = Math.floor((Date.now() - date.getTime()) / 1000);
+      if (s < 60) return "az önce";
+      if (s < 3600) return Math.floor(s / 60) + " dk önce";
+      if (s < 86400) return Math.floor(s / 3600) + " sa önce";
+      return Math.floor(s / 86400) + " gün önce";
+    }
+
     // SİNYALLERİ EKRANA ÇİZME
     function renderSignals() {
       const container = document.getElementById('signals-container');
       if (currentSignals.length === 0) {
-        container.innerHTML = `<div class="col-span-full card p-8 text-center text-gray-400">Henüz yayınlanmış genel sinyal bulunmuyor. Bot tarama yaptıkça veriler buraya akacaktır.</div>`;
+        container.innerHTML = `<div class="col-span-full card p-8 text-center text-gray-400">Şu an aktif sinyal yok. Sistem skor eşiğini geçen net bir kurulum bulunca burada görünecek (günde 3 kez taranıyor).</div>`;
         return;
       }
 
       let html = '';
       currentSignals.forEach(sig => {
-        const badgeStyle = getBadgeStyle(sig.signal || sig.action);
+        const isLong = sig.direction === 'long';
+        const badgeStyle = isLong ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+        const confColor = sig.confidence === 'high' ? 'text-amber-400' : 'text-gray-400';
+
         html += `
           <div class="card p-5">
             <div class="flex justify-between items-center mb-3">
               <h3 class="text-xl font-bold text-white">${sig.ticker}</h3>
-              <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full border ${badgeStyle}">
-                ${sig.signal || sig.action || 'TUT'}
-              </span>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] font-semibold uppercase ${confColor}">${sig.confidence || ''}</span>
+                <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full border ${badgeStyle}">
+                  ${isLong ? 'AL (LONG)' : (sig.direction || 'TUT').toUpperCase()}
+                </span>
+              </div>
             </div>
-            <div class="space-y-1.5 text-sm">
-              <div class="flex justify-between text-gray-400">
-                <span>Fiyat:</span>
-                <span class="text-white font-medium">${formatMoney(sig.price || sig.current_price)}</span>
-              </div>
-              <div class="flex justify-between text-gray-400">
-                <span>RSI (14):</span>
-                <span class="text-white font-medium">${safeNum(sig.rsi) ? Number(sig.rsi).toFixed(1) : '---'}</span>
-              </div>
-              <div class="flex justify-between text-gray-400">
-                <span>Trend:</span>
-                <span class="text-emerald-400 font-medium">${sig.trend || 'Nötr'}</span>
-              </div>
+            <div class="grid grid-cols-4 gap-2 text-center bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] mb-3">
+              <div><p class="text-[10px] text-gray-400">Giriş</p><p class="font-semibold text-white text-sm">${formatMoney(sig.entry)}</p></div>
+              <div><p class="text-[10px] text-gray-400">Stop</p><p class="font-semibold text-red-400 text-sm">${formatMoney(sig.stop_loss)}</p></div>
+              <div><p class="text-[10px] text-gray-400">Hedef</p><p class="font-semibold text-emerald-400 text-sm">${formatMoney(sig.take_profit)}</p></div>
+              <div><p class="text-[10px] text-gray-400">R/R</p><p class="font-semibold text-white text-sm">1:${safeNum(sig.risk_reward) ?? '-'}</p></div>
+            </div>
+            <div class="flex justify-between items-center text-xs text-gray-400">
+              <p class="flex-1">${sig.reasoning || ''}</p>
+              <p class="whitespace-nowrap ml-2">${timeAgo(sig.updated_at)}</p>
+            </div>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    }
+
+    // GEÇMİŞİ EKRANA ÇİZME (isabet oranı dahil)
+    function renderHistory() {
+      const container = document.getElementById('history-container');
+      if (currentHistory.length === 0) {
+        container.innerHTML = `<div class="card p-8 text-center text-gray-400">Henüz sinyal geçmişi yok.</div>`;
+        document.getElementById('hist-total').innerText = '0';
+        document.getElementById('hist-wins').innerText = '0';
+        document.getElementById('hist-losses').innerText = '0';
+        document.getElementById('hist-winrate').innerText = '-';
+        return;
+      }
+
+      const closed = currentHistory.filter(h => h.status === 'win' || h.status === 'loss');
+      const wins = closed.filter(h => h.status === 'win').length;
+      const losses = closed.filter(h => h.status === 'loss').length;
+      const winRate = closed.length > 0 ? (wins / closed.length * 100).toFixed(1) : '-';
+
+      document.getElementById('hist-total').innerText = closed.length;
+      document.getElementById('hist-wins').innerText = wins;
+      document.getElementById('hist-losses').innerText = losses;
+      document.getElementById('hist-winrate').innerText = closed.length > 0 ? `%${winRate}` : '-';
+
+      let html = '';
+      currentHistory.forEach(h => {
+        let statusBadge = '<span class="px-2 py-0.5 text-[10px] font-semibold rounded-full border bg-blue-500/20 text-blue-400 border-blue-500/30">AÇIK</span>';
+        if (h.status === 'win') statusBadge = '<span class="px-2 py-0.5 text-[10px] font-semibold rounded-full border bg-emerald-500/20 text-emerald-400 border-emerald-500/30">HEDEF ✓</span>';
+        if (h.status === 'loss') statusBadge = '<span class="px-2 py-0.5 text-[10px] font-semibold rounded-full border bg-red-500/20 text-red-400 border-red-500/30">STOP ✗</span>';
+
+        html += `
+          <div class="card p-3.5 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <span class="font-bold text-white w-16">${h.ticker}</span>
+              ${statusBadge}
+              <span class="text-xs text-gray-400 hidden md:inline">${h.reasoning || ''}</span>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gray-400">
+              <span>Giriş: <span class="text-white">${formatMoney(h.entry)}</span></span>
+              <span class="hidden sm:inline">${timeAgo(h.updated_at)}</span>
             </div>
           </div>
         `;
@@ -307,8 +399,8 @@
                 <p class="font-bold ${pnlColor}">${formatPercent(pnlPct)}</p>
               </div>
               <div>
-                <p class="text-xs text-gray-400">İz Süren Stop</p>
-                <p class="font-bold text-amber-400">${formatMoney(alert.trailing_stop_price)}</p>
+                <p class="text-xs text-gray-400">Stop / Hedef</p>
+                <p class="font-bold text-amber-400 text-xs">${formatMoney(alert.stop_loss || alert.trailing_stop_price)} / ${formatMoney(alert.take_profit)}</p>
               </div>
             </div>
 
@@ -344,21 +436,22 @@
     // SEKME GEÇİŞİ
     window.switchTab = (tab) => {
       const btnSignals = document.getElementById('tab-signals');
+      const btnHistory = document.getElementById('tab-history');
       const btnPortfolio = document.getElementById('tab-portfolio');
       const viewSignals = document.getElementById('view-signals');
+      const viewHistory = document.getElementById('view-history');
       const viewPortfolio = document.getElementById('view-portfolio');
 
-      if (tab === 'portfolio') {
-        btnPortfolio.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d]";
-        btnSignals.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white";
-        viewPortfolio.classList.remove('hidden');
-        viewSignals.classList.add('hidden');
-      } else {
-        btnSignals.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d]";
-        btnPortfolio.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white";
-        viewSignals.classList.remove('hidden');
-        viewPortfolio.classList.add('hidden');
-      }
+      const active = "px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d]";
+      const inactive = "px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white";
+
+      btnSignals.className = tab === 'signals' ? active : inactive;
+      btnHistory.className = tab === 'history' ? active : inactive;
+      btnPortfolio.className = tab === 'portfolio' ? active : inactive;
+
+      viewSignals.classList.toggle('hidden', tab !== 'signals');
+      viewHistory.classList.toggle('hidden', tab !== 'history');
+      viewPortfolio.classList.toggle('hidden', tab !== 'portfolio');
     };
   </script>
 </body>
