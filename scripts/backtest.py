@@ -16,59 +16,64 @@ logger = logging.getLogger("backtest")
 
 
 def apply_indicators(df):
-    if hasattr(indicators, "add_all_indicators"):
-        return indicators.add_all_indicators(df)
-    elif hasattr(indicators, "calculate_indicators"):
-        return indicators.calculate_indicators(df)
-    elif hasattr(indicators, "add_indicators"):
-        return indicators.add_indicators(df)
-    else:
-        if hasattr(indicators, "add_rsi"): df = indicators.add_rsi(df)
-        if hasattr(indicators, "add_macd"): df = indicators.add_macd(df)
-        if hasattr(indicators, "add_adx"): df = indicators.add_adx(df)
-        if hasattr(indicators, "add_ema"): df = indicators.add_ema(df)
-        if hasattr(indicators, "add_obv"): df = indicators.add_obv(df)
-        return df
+    """indicators.py ile AYNI hesaplama mantığını kullanır (add_indicator_columns)."""
+    return indicators.add_indicator_columns(df)
 
 
 def parse_row_to_indicators_dict(sub_df):
+    """
+    indicators.add_indicator_columns() tarafından eklenen GERÇEK kolonları okur.
+    (Önceden pandas_ta stili kolon isimleri aranıyordu ve hiçbiri eşleşmiyordu;
+    bu yüzden backtest sabit varsayılan değerlerle çalışıyordu. Artık düzeltildi.)
+    """
     if len(sub_df) < 2:
         return None
 
     row = sub_df.iloc[-1]
     prev_row = sub_df.iloc[-2]
 
-    close = float(row.get("Close", 0))
-    ema50 = float(row.get("EMA_50", row.get("ema50", 0)))
-    ema200 = float(row.get("EMA_200", row.get("ema200", 0)))
-    adx14 = float(row.get("ADX_14", row.get("adx14", 25)))
-    rsi14 = float(row.get("RSI_14", row.get("rsi14", 50)))
-    
-    macd_hist = float(row.get("MACDh_12_26_9", row.get("macd_hist", 0)))
-    macd_hist_prev = float(prev_row.get("MACDh_12_26_9", prev_row.get("macd_hist", 0)))
+    if pd.isna(row.get("EMA50")) or pd.isna(row.get("ATR14")):
+        return None  # yeterli geçmiş yok, bu barı atla
 
-    volume = float(row.get("Volume", 0))
-    vol_sma = float(row.get("Volume_SMA_20", sub_df["Volume"].tail(20).mean()))
-    obv = float(row.get("OBV", 0))
-    obv_prev = float(prev_row.get("OBV", 0))
+    close = float(row["Close"])
+    ema50 = float(row["EMA50"])
+    ema200 = float(row["EMA200"]) if not pd.isna(row["EMA200"]) else ema50
+    adx14 = float(row["ADX14"]) if not pd.isna(row["ADX14"]) else 0.0
+    rsi14 = float(row["RSI14"]) if not pd.isna(row["RSI14"]) else 50.0
 
-    atr14 = float(row.get("ATRr_14", row.get("atr14", close * 0.02)))
+    macd_hist = float(row["MACD_HIST"]) if not pd.isna(row["MACD_HIST"]) else 0.0
+    macd_hist_prev = float(prev_row["MACD_HIST"]) if not pd.isna(prev_row["MACD_HIST"]) else 0.0
+
+    volume = float(row["Volume"])
+    vol_sma = float(row["VOL_AVG20"]) if not pd.isna(row["VOL_AVG20"]) else volume
+    obv = float(row["OBV"])
+    obv_prev = float(prev_row["OBV"])
+
+    atr14 = float(row["ATR14"])
+
+    lookback = sub_df.iloc[-10:]
+    bearish_div = bool(
+        len(lookback) >= 10
+        and not lookback["RSI14"].isna().all()
+        and close >= lookback["Close"].max() * 0.999
+        and rsi14 < lookback["RSI14"].max() - 3
+    )
 
     return {
         "close": close,
         "trend": {
-            "price_above_ema50": close > ema50 if ema50 > 0 else True,
-            "ema50_above_ema200": ema50 > ema200 if (ema50 > 0 and ema200 > 0) else True,
+            "price_above_ema50": close > ema50,
+            "ema50_above_ema200": ema50 > ema200,
             "adx14": adx14
         },
         "momentum": {
             "rsi14": rsi14,
             "macd_hist": macd_hist,
             "macd_hist_prev": macd_hist_prev,
-            "bearish_rsi_divergence": False
+            "bearish_rsi_divergence": bearish_div
         },
         "volume": {
-            "above_avg": volume > vol_sma if vol_sma > 0 else True,
+            "above_avg": volume > vol_sma,
             "obv_rising": obv > obv_prev
         },
         "volatility": {

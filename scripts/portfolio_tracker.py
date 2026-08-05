@@ -49,31 +49,19 @@ def evaluate_position(position):
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        if hasattr(indicators, "add_all_indicators"):
-            df = indicators.add_all_indicators(df)
+        # indicators.py ile AYNI hesaplama mantığı (main.py ve backtest.py ile tutarlı)
+        df = indicators.add_indicator_columns(df)
 
-        # Sütunların Seri (Series) olduğundan emin ol
         close_series = df["Close"].squeeze()
         high_series = df["High"].squeeze()
 
         current_close = float(close_series.iloc[-1])
         recent_max_high = float(high_series.tail(10).max())
 
-        # Indikatör değerlerini güvenli alma
-        if "ATRr_14" in df.columns:
-            atr14 = float(df["ATRr_14"].squeeze().iloc[-1])
-        else:
-            atr14 = float(current_close * 0.02)
-
-        if "EMA_20" in df.columns:
-            ema20 = float(df["EMA_20"].squeeze().iloc[-1])
-        else:
-            ema20 = float(close_series.ewm(span=20).mean().iloc[-1])
-
-        if "RSI_14" in df.columns:
-            rsi14 = float(df["RSI_14"].squeeze().iloc[-1])
-        else:
-            rsi14 = 50.0
+        last = df.iloc[-1]
+        atr14 = float(last["ATR14"]) if not pd.isna(last["ATR14"]) else float(current_close * 0.02)
+        ema20 = float(last["EMA20"]) if not pd.isna(last["EMA20"]) else float(close_series.ewm(span=20).mean().iloc[-1])
+        rsi14 = float(last["RSI14"]) if not pd.isna(last["RSI14"]) else 50.0
 
         pnl_pct = ((current_close - entry_price) / entry_price) * 100
         pnl_amount = (current_close - entry_price) * qty
