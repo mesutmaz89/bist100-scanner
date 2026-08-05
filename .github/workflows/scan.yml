@@ -26,5 +26,4 @@ jobs:
       - name: Tarayıcı Botu Çalıştır
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: |
-          python main.py
+        run: python scripts/main.py
