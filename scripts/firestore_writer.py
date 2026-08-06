@@ -77,6 +77,27 @@ def write_signals(signals: list[dict]):
     logger.info(f"{count} adet sinyal Firestore'a yazıldı (signals + signal_history).")
 
 
+def clear_all_signals():
+    """
+    Endeks düşüş trendindeyken HİÇBİR sinyal geçerli sayılmaz. Bu fonksiyon
+    'signals' koleksiyonundaki her şeyi temizler, böylece dashboard'da eski/bayat
+    kartlar (yeni alanlar eklenmeden önceki kayıtlar dahil) sonsuza kadar asılı kalmaz.
+    """
+    init_firebase()
+    if not firebase_admin._apps:
+        return 0
+    db = firestore.client()
+    docs = list(db.collection("signals").stream())
+    if not docs:
+        return 0
+    batch = db.batch()
+    for doc_snap in docs:
+        batch.delete(doc_snap.reference)
+    batch.commit()
+    logger.info(f"Endeks düşüşte: {len(docs)} adet sinyal tamamen temizlendi.")
+    return len(docs)
+
+
 def cleanup_stale_signals(all_scanned_tickers: list, active_tickers: list):
     """
     Artık geçerli olmayan sinyalleri 'signals' koleksiyonundan siler:
