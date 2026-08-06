@@ -1,13 +1,13 @@
 """
 backtest.py
-Decision Engine + Trailing Stop + BIST100 Endeks Filtresini BIST hisselerinde simüle eder.
+Decision Engine + Trailing Stop + BIST100 Endeks Filtresini BIST hisselerinde simule eder.
 
-Parametreleri dışarıdan vererek farklı çıkış senaryolarını karşılaştırabilirsin:
+Parametreleri disaridan vererek farkli cikis senaryolarini karsilastirabilirsin:
   python scripts/backtest.py --trail-trigger 1.0 --trail-dist 1.0
   python scripts/backtest.py --trail-trigger 1.8 --trail-dist 1.5
   python scripts/backtest.py --period 2y
 
-GitHub Actions'tan (workflow_dispatch inputs) da aynı parametreler geçilebilir.
+GitHub Actions'tan (workflow_dispatch inputs) da ayni parametreler gecilebilir.
 """
 
 import os
@@ -17,6 +17,10 @@ import logging
 import argparse
 import pandas as pd
 import yfinance as yf
+
+# scripts/ dizinini Python path'ine ekle (GitHub Actions'ta dogru calismasi icin)
+sys.path.append(os.path.dirname(__file__))
+
 import indicators
 import decision_engine
 
@@ -25,12 +29,12 @@ logger = logging.getLogger("backtest")
 
 
 def apply_indicators(df):
-    """indicators.py ile AYNI hesaplama mantığını kullanır (add_indicator_columns)."""
+    """indicators.py ile AYNI hesaplama mantigini kullanir (add_indicator_columns)."""
     return indicators.add_indicator_columns(df)
 
 
 def parse_row_to_indicators_dict(sub_df):
-    """indicators.add_indicator_columns() tarafından eklenen GERÇEK kolonları okur."""
+    """indicators.add_indicator_columns() tarafindan eklenen GERCEK kolonlari okur."""
     if len(sub_df) < 2:
         return None
 
@@ -108,13 +112,13 @@ def load_watchlist():
 def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mode="trailing",
                   long_only=False, commission_pct=0.0):
     """
-    trail_trigger_atr: kaç ATR kâra ulaşınca trailing stop devreye girsin
-    trail_dist_atr   : trailing stop, zirveden kaç ATR geride tutulsun
-    exit_mode        : "trailing" (varsayılan) veya "fixed_tp"
-    long_only        : True ise SHORT sinyalleri tamamen yok sayılır
-    commission_pct   : Gidiş+dönüş toplam maliyet varsayımı (komisyon + BSMV + kayma),
-                        fiyatın yüzdesi olarak. Örn. 0.3 -> her işlemde %0.3 maliyet.
-                        Bu, R-multiple'dan maliyetin risk birimine oranı kadar düşülerek uygulanır.
+    trail_trigger_atr: kac ATR karlarda trailing stop devreye girsin
+    trail_dist_atr   : trailing stop, zirveden kac ATR geride tutulsun
+    exit_mode        : "trailing" (varsayilan) veya "fixed_tp"
+    long_only        : True ise SHORT sinyalleri tamamen yok sayilir
+    commission_pct   : Gidis+donus toplam maliyet varsayimi (komisyon + BSMV + kayma),
+                        fiyatin yuzdesi olarak. Orn. 0.3 -> her islemde %0.3 maliyet.
+                        Bu, R-multiple'dan maliyetin risk birimine orani kadar dusulerek uygulanir.
     """
     logger.info(f"Parametreler: period={period}, trail_trigger={trail_trigger_atr}ATR, "
                 f"trail_dist={trail_dist_atr}ATR, exit_mode={exit_mode}, long_only={long_only}, "
@@ -128,7 +132,7 @@ def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mo
         index_df["EMA_50"] = index_df["Close"].ewm(span=50).mean()
 
     tickers = load_watchlist()
-    logger.info(f"{len(tickers)} hisse için {period} süresince backtest başlatılıyor...")
+    logger.info(f"{len(tickers)} hisse icin {period} suresince backtest baslatiliyor...")
 
     total_trades = 0
     winning_trades = 0
@@ -230,7 +234,7 @@ def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mo
                         else:
                             r = (entry_price - exit_price) / initial_risk
 
-                        # Komisyon + BSMV + kayma maliyetini R birimine çevirip düş
+                        # Komisyon + BSMV + kayma maliyetini R birimine cevirip dus
                         if commission_pct > 0:
                             cost_r = (commission_pct / 100 * entry_price) / initial_risk
                             r -= cost_r
@@ -247,7 +251,7 @@ def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mo
                         in_position = False
 
         except Exception as e:
-            logger.error(f"{ticker} hatası: {e}")
+            logger.error(f"{ticker} hatasi: {e}")
 
     win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
     avg_r = sum(r_multiples) / len(r_multiples) if r_multiples else 0.0
@@ -257,31 +261,31 @@ def run_backtest(period="1y", trail_trigger_atr=1.0, trail_dist_atr=1.0, exit_mo
 
     def _dir_stats(rs):
         if not rs:
-            return "işlem yok"
+            return "islem yok"
         wins = [r for r in rs if r > 0]
         wr = len(wins) / len(rs) * 100
-        return f"{len(rs)} işlem, WinRate %{wr:.1f}, Beklenti {sum(rs)/len(rs):+.2f}R"
+        return f"{len(rs)} islem, WinRate %{wr:.1f}, Beklenti {sum(rs)/len(rs):+.2f}R"
 
     print("\n" + "=" * 50)
-    print(f" 📊 BACKTEST SONUÇLARI  [exit_mode={exit_mode}, "
+    print(f" 📊 BACKTEST SONUCLARI  [exit_mode={exit_mode}, "
           f"trigger={trail_trigger_atr}ATR, dist={trail_dist_atr}ATR, period={period}]")
     print("=" * 50)
-    print(f" Toplam Açılan İşlem   : {total_trades}")
-    print(f" Başarılı İşlemler     : {winning_trades}")
-    print(f" Başarısız İşlemler    : {losing_trades}")
-    print(f" Başarı Oranı (WinRate): %{win_rate:.2f}")
-    print(f" Ortalama Kazanç (R)   : {avg_win_r:+.2f}R")
-    print(f" Ortalama Kayıp (R)    : {avg_loss_r:+.2f}R")
-    print(f" Beklenti (Expectancy) : {avg_r:+.2f}R / işlem  <-- EN GÜVENİLİR METRİK")
-    print(f" Bileşik Getiri (%{RISK_PER_TRADE_PCT} risk/işlem): %{equity_return_pct:+.2f}  "
-          f"(DİKKAT: işlemler art arda/tek pozisyon varsayımıyla hesaplandı, "
-          f"gerçekte eşzamanlı açık pozisyonlar olacağı için gerçek getiri bundan düşük olur)")
+    print(f" Toplam Acilan Islem   : {total_trades}")
+    print(f" Basarili Islemler     : {winning_trades}")
+    print(f" Basarisiz Islemler    : {losing_trades}")
+    print(f" Basari Orani (WinRate): %{win_rate:.2f}")
+    print(f" Ortalama Kazanc (R)   : {avg_win_r:+.2f}R")
+    print(f" Ortalama Kayip (R)    : {avg_loss_r:+.2f}R")
+    print(f" Beklenti (Expectancy) : {avg_r:+.2f}R / islem  <-- EN GUVENILIR METRIK")
+    print(f" Bilesik Getiri (%{RISK_PER_TRADE_PCT} risk/islem): %{equity_return_pct:+.2f}  "
+          f"(DIKKAT: islemler art arda/tek pozisyon varsayimiyla hesaplandi, "
+          f"gercekte eszamanli acik pozisyonlar olacagi icin gercek getiri bundan dusuk olur)")
     print("-" * 50)
     print(f" LONG  : {_dir_stats(r_by_direction['long'])}")
     print(f" SHORT : {_dir_stats(r_by_direction['short'])}")
     print("=" * 50)
-    print(" Not: 'Beklenti' negatifse, kazanma oranı yüksek olsa bile strateji")
-    print(" ortalamada para kaybettiriyor demektir (kayıplar kazançlardan büyük).")
+    print(" Not: 'Beklenti' negatifse, kazanma orani yuksek olsa bile strateji")
+    print(" ortalamada para kaybettiriyor demektir (kayiplar kazanclardan buyuk).")
     print("=" * 50 + "\n")
 
     return {
@@ -295,14 +299,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--period", default="1y")
     parser.add_argument("--trail-trigger", type=float, default=1.0,
-                         help="Kaç ATR kârda trailing stop devreye girsin")
+                         help="Kac ATR karlarda trailing stop devreye girsin")
     parser.add_argument("--trail-dist", type=float, default=1.0,
-                         help="Trailing stop zirveden kaç ATR geride tutulsun")
+                         help="Trailing stop zirveden kac ATR geride tutulsun")
     parser.add_argument("--exit-mode", choices=["trailing", "fixed_tp"], default="trailing")
     parser.add_argument("--long-only", action="store_true",
                          help="SHORT sinyallerini yok say, sadece LONG test et")
     parser.add_argument("--commission-pct", type=float, default=0.0,
-                         help="Gidiş+dönüş toplam maliyet varsayımı (yüzde). Örn. 0.3")
+                         help="Gidis+donus toplam maliyet varsayimi (yuzde). Orn. 0.3")
     args = parser.parse_args()
 
     run_backtest(
