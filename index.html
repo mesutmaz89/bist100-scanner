@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BIST100 Sinyal & Portföy Paneli</title>
 
-  <!-- PWA & Mobil Kurulum Ayarları -->
+  <!-- PWA Meta Ayarları -->
   <meta name="theme-color" content="#0d1117">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -22,7 +22,7 @@
     .input-field:focus { outline: none; border-color: #58a6ff; }
   </style>
 
-  <!-- Service Worker Kaydı (PWA Desteği) -->
+  <!-- Service Worker Kaydı -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -35,7 +35,7 @@
 </head>
 <body class="p-4 md:p-8 max-w-6xl mx-auto">
 
-  <!-- Üst Başlık & Sekmeler -->
+  <!-- Üst Başlık & Sekmeler (Orijinal Tasarım) -->
   <header class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
     <div>
       <h1 class="text-2xl font-bold text-white flex items-center gap-2">
@@ -45,17 +45,25 @@
       <p id="last-update" class="text-xs text-gray-400 mt-1">Otomatik Tarama Aktif (Hafta içi saat başı)</p>
     </div>
     
-    <!-- Sekme Butonları -->
-    <div class="flex bg-[#161b22] p-1 rounded-xl border border-[#30363d]">
+    <!-- Sekme Butonları (Orijinal 3'lü Yapı) -->
+    <div class="flex bg-[#161b22] p-1 rounded-xl border border-[#30363d] gap-1">
       <button onclick="switchTab('signals')" id="tab-signals" class="px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d]">Sinyaller</button>
-      <button onclick="switchTab('portfolio')" id="tab-portfolio" class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white">💼 Portföyüm</button>
+      <button onclick="switchTab('history')" id="tab-history" class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white flex items-center gap-1.5">📊 Geçmiş</button>
+      <button onclick="switchTab('portfolio')" id="tab-portfolio" class="px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white flex items-center gap-1.5">💼 Portföyüm</button>
     </div>
   </header>
 
-  <!-- SİNYALLER SEKMESİ -->
+  <!-- SİNYALLER SEKMESİ (Orijinal Kart Düzeni) -->
   <main id="view-signals" class="space-y-4">
     <div id="signals-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <div class="col-span-full text-center py-8 text-gray-500 card">Sinyaller yükleniyor...</div>
+    </div>
+  </main>
+
+  <!-- GEÇMİŞ SEKMESİ -->
+  <main id="view-history" class="space-y-4 hidden">
+    <div id="history-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div class="col-span-full text-center py-8 text-gray-500 card">Geçmiş sinyaller yükleniyor...</div>
     </div>
   </main>
 
@@ -135,7 +143,6 @@
     import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
     import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
 
-    // FIREBASE KONFİGÜRASYONU
     const firebaseConfig = {
       apiKey: "AIzaSyAUdkTkbut1KrO-IAOPGfAUG0fx0YCvY2A",
       authDomain: "bist100-scanner.firebaseapp.com",
@@ -149,7 +156,7 @@
     const db = getFirestore(app);
     const messaging = getMessaging(app);
 
-    // ANLIK BİLDİRİM İZNİ VE TOKEN KAYDI (FCM)
+    // BİLDİRİM İZNİ VE TOKEN KAYDI
     async function requestNotificationPermission() {
       try {
         const permission = await Notification.requestPermission();
@@ -163,11 +170,10 @@
               token: currentToken,
               created_at: serverTimestamp()
             });
-            console.log("Bildirim izni onaylandı, FCM Token kaydedildi.");
           }
         }
       } catch (err) {
-        console.error("Bildirim izni alınırken hata:", err);
+        console.error("Bildirim izni hatası:", err);
       }
     }
 
@@ -176,8 +182,9 @@
     let currentPositions = [];
     let currentAlerts = {};
     let currentSignals = [];
+    let historySignals = [];
 
-    // Formatlama Yardımcıları
+    // Formatlayıcılar
     function safeNum(val) {
       const num = Number(val);
       return isNaN(num) ? null : num;
@@ -199,13 +206,13 @@
     function getBadgeStyle(action) {
       switch (action) {
         case 'EXIT_ALL': case 'SAT': return 'bg-red-500/20 text-red-400 border-red-500/30';
-        case 'TAKE_PROFIT_HALF': case 'AL': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+        case 'TAKE_PROFIT_HALF': case 'AL': case 'AL (LONG)': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
         case 'BUY_MORE': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
         default: return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
       }
     }
 
-    // POZİSYON EKLEME & SİLME
+    // POZİSYON İŞLEMLERİ
     document.getElementById('add-position-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const rawTicker = document.getElementById('pos-ticker').value.trim().toUpperCase();
@@ -256,46 +263,90 @@
 
     onSnapshot(collection(db, "signals"), (snapshot) => {
       currentSignals = [];
-      snapshot.forEach(docSnap => { currentSignals.push(docSnap.data()); });
+      historySignals = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.status === 'CLOSED' || data.is_history === true) {
+          historySignals.push(data);
+        } else {
+          currentSignals.push(data);
+        }
+      });
       renderSignals();
+      renderHistory();
     });
+
+    // KART ŞABLONU (Orijinal İlk Ekran Tasarımı)
+    function createSignalCard(sig) {
+      const signalType = sig.signal || sig.action || 'AL (LONG)';
+      const riskLevel = sig.risk_level || sig.risk || 'MEDIUM';
+      const entryPrice = sig.entry_price || sig.price || sig.current_price;
+      const stopLoss = sig.stop_loss || sig.stop;
+      const targetPrice = sig.target_price || sig.target || sig.hedef;
+      const rrRatio = sig.risk_reward || sig.rr || '1:2';
+      const reasoning = sig.reasoning || sig.description || 'ADX>20 trend güçlü, RSI sağlıklı bölgede, OBV yükseliyor';
+
+      return `
+        <div class="card p-5">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold text-white tracking-wide">${sig.ticker}</h3>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold text-gray-400 tracking-wider">${riskLevel}</span>
+              <span class="px-2.5 py-1 text-xs font-bold rounded-lg border ${getBadgeStyle(signalType)}">
+                ${signalType}
+              </span>
+            </div>
+          </div>
+
+          <div class="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] mb-4">
+            <div class="grid grid-cols-4 gap-2 text-center">
+              <div>
+                <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Giriş</p>
+                <p class="text-sm font-bold text-white">${formatMoney(entryPrice)}</p>
+              </div>
+              <div>
+                <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Stop</p>
+                <p class="text-sm font-bold text-red-400">${formatMoney(stopLoss)}</p>
+              </div>
+              <div>
+                <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Hedef</p>
+                <p class="text-sm font-bold text-emerald-400">${formatMoney(targetPrice)}</p>
+              </div>
+              <div>
+                <p class="text-[10px] text-gray-400 uppercase tracking-wider mb-1">R/R</p>
+                <p class="text-sm font-bold text-white">${rrRatio}</p>
+              </div>
+            </div>
+          </div>
+
+          <p class="text-xs text-gray-400 leading-relaxed">${reasoning}</p>
+        </div>
+      `;
+    }
 
     // SİNYALLERİ EKRANA ÇİZME
     function renderSignals() {
       const container = document.getElementById('signals-container');
       if (currentSignals.length === 0) {
-        container.innerHTML = `<div class="col-span-full card p-8 text-center text-gray-400">Henüz yayınlanmış genel sinyal bulunmuyor. Bot tarama yaptıkça veriler buraya akacaktır.</div>`;
+        container.innerHTML = `<div class="col-span-full card p-8 text-center text-gray-400">Henüz yayınlanmış aktif sinyal bulunmuyor.</div>`;
         return;
       }
 
       let html = '';
-      currentSignals.forEach(sig => {
-        const badgeStyle = getBadgeStyle(sig.signal || sig.action);
-        html += `
-          <div class="card p-5">
-            <div class="flex justify-between items-center mb-3">
-              <h3 class="text-xl font-bold text-white">${sig.ticker}</h3>
-              <span class="px-2.5 py-0.5 text-xs font-semibold rounded-full border ${badgeStyle}">
-                ${sig.signal || sig.action || 'TUT'}
-              </span>
-            </div>
-            <div class="space-y-1.5 text-sm">
-              <div class="flex justify-between text-gray-400">
-                <span>Fiyat:</span>
-                <span class="text-white font-medium">${formatMoney(sig.price || sig.current_price)}</span>
-              </div>
-              <div class="flex justify-between text-gray-400">
-                <span>RSI (14):</span>
-                <span class="text-white font-medium">${safeNum(sig.rsi) ? Number(sig.rsi).toFixed(1) : '---'}</span>
-              </div>
-              <div class="flex justify-between text-gray-400">
-                <span>Trend:</span>
-                <span class="text-emerald-400 font-medium">${sig.trend || 'Nötr'}</span>
-              </div>
-            </div>
-          </div>
-        `;
-      });
+      currentSignals.forEach(sig => { html += createSignalCard(sig); });
+      container.innerHTML = html;
+    }
+
+    // GEÇMİŞİ EKRANA ÇİZME
+    function renderHistory() {
+      const container = document.getElementById('history-container');
+      if (historySignals.length === 0) {
+        container.innerHTML = `<div class="col-span-full card p-8 text-center text-gray-400">Geçmiş sinyal kaydı bulunmuyor.</div>`;
+        return;
+      }
+
+      let html = '';
+      historySignals.forEach(sig => { html += createSignalCard(sig); });
       container.innerHTML = html;
     }
 
@@ -387,23 +438,34 @@
       pctElem.className = `text-lg font-bold ${color}`;
     }
 
-    // SEKME GEÇİŞİ
+    // SEKME GEÇİŞLERİ (3'lü Sekme Yapısı)
     window.switchTab = (tab) => {
       const btnSignals = document.getElementById('tab-signals');
+      const btnHistory = document.getElementById('tab-history');
       const btnPortfolio = document.getElementById('tab-portfolio');
+
       const viewSignals = document.getElementById('view-signals');
+      const viewHistory = document.getElementById('view-history');
       const viewPortfolio = document.getElementById('view-portfolio');
 
-      if (tab === 'portfolio') {
-        btnPortfolio.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d]";
-        btnSignals.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white";
+      // Bütün sekmeleri pasif yap
+      [btnSignals, btnHistory, btnPortfolio].forEach(btn => {
+        btn.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white flex items-center gap-1.5";
+      });
+      [viewSignals, viewHistory, viewPortfolio].forEach(view => {
+        view.classList.add('hidden');
+      });
+
+      // Seçileni aktif yap
+      if (tab === 'history') {
+        btnHistory.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d] flex items-center gap-1.5";
+        viewHistory.classList.remove('hidden');
+      } else if (tab === 'portfolio') {
+        btnPortfolio.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d] flex items-center gap-1.5";
         viewPortfolio.classList.remove('hidden');
-        viewSignals.classList.add('hidden');
       } else {
         btnSignals.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-white bg-[#21262d]";
-        btnPortfolio.className = "px-4 py-1.5 text-sm font-medium rounded-lg text-gray-400 hover:text-white";
         viewSignals.classList.remove('hidden');
-        viewPortfolio.classList.add('hidden');
       }
     };
   </script>
