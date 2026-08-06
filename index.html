@@ -140,6 +140,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, serverTimestamp, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import { getMessaging, getToken } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js";
 
     // FIREBASE KONFİGÜRASYONU
     const firebaseConfig = {
@@ -153,6 +154,32 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
+    const messaging = getMessaging(app);
+
+    // FCM TOKEN ALMA VE FIRESTORE'A KAYDETME
+    async function initFCMToken() {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          const reg = await navigator.serviceWorker.ready;
+          const currentToken = await getToken(messaging, { 
+            serviceWorkerRegistration: reg,
+            vapidKey: 'BIU1zZhwL4i81NZ2WWXnigRcS2RxY28bZZOkE4R72supv8TCLJcDymhjDajTMRMQYwIeIhKPnorjJJExHmlI5-c' 
+          });
+
+          if (currentToken) {
+            await addDoc(collection(db, "fcm_tokens"), {
+              token: currentToken,
+              created_at: serverTimestamp()
+            });
+            console.log("FCM Token Firestore'a başarıyla kaydedildi.");
+          }
+        }
+      } catch (err) {
+        console.error("FCM Token hatası:", err);
+      }
+    }
+    initFCMToken();
 
     let currentPositions = [];
     let currentAlerts = {};
