@@ -27,6 +27,36 @@ def check_index_trend(index_df) -> bool:
     return close >= ema50
 
 
+def _plain_language_summary(trend_up, strong_trend, rsi_ok, macd_up, volume_up, obv_up) -> str:
+    """Teknik jargonu sade, tek cümlelik bir özete çevirir."""
+    parts = []
+    if trend_up and strong_trend:
+        parts.append("Hisse belirgin bir yükseliş trendinde")
+    elif trend_up:
+        parts.append("Hisse yükseliş eğiliminde")
+
+    momentum_bits = []
+    if macd_up:
+        momentum_bits.append("alım baskısı güçleniyor")
+    if rsi_ok:
+        momentum_bits.append("aşırı alım/satım bölgesinde değil")
+    if momentum_bits:
+        parts.append(" ve ".join(momentum_bits))
+
+    volume_bits = []
+    if volume_up:
+        volume_bits.append("işlem hacmi normalin üzerinde")
+    if obv_up:
+        volume_bits.append("para girişi artıyor")
+    if volume_bits:
+        parts.append(" ve ".join(volume_bits))
+
+    if not parts:
+        return "Teknik görünüm nötr, belirgin bir sinyal yok."
+
+    return ", ".join(parts) + "."
+
+
 def build_signal(ticker: str, indicators: dict, index_uptrend: bool = True) -> dict:
     """Tek bir hisse için tam sinyal üretir (entry/stop/hedef dahil)."""
     if indicators is None:
@@ -116,15 +146,31 @@ def build_signal(ticker: str, indicators: dict, index_uptrend: bool = True) -> d
     reward = abs(take_profit - entry) if take_profit else None
     risk_reward = round(reward / risk, 2) if risk and reward and risk > 0 else None
 
+    stop_pct = round((stop_loss - entry) / entry * 100, 2) if stop_loss else None
+    target_pct = round((take_profit - entry) / entry * 100, 2) if take_profit else None
+
+    plain_summary = _plain_language_summary(
+        trend_up=bool(t.get("price_above_ema50") and t.get("ema50_above_ema200")),
+        strong_trend=bool(t.get("adx14") and t["adx14"] >= 25),
+        rsi_ok=bool(m.get("rsi14") and 42 <= m["rsi14"] <= 62),
+        macd_up=bool(m.get("macd_hist") is not None and m.get("macd_hist_prev") is not None
+                      and m["macd_hist"] > 0 and m["macd_hist"] > m["macd_hist_prev"]),
+        volume_up=bool(v.get("above_avg")),
+        obv_up=bool(v.get("obv_rising")),
+    )
+
     return {
         "ticker": ticker,
         "direction": direction,
         "entry": round(entry, 4),
         "stop_loss": stop_loss,
         "take_profit": take_profit,
+        "stop_pct": stop_pct,
+        "target_pct": target_pct,
         "risk_reward": risk_reward,
         "confidence": _confidence_from_score(score),
         "reasoning": ", ".join(reasons) if reasons else "seçici kural bazlı skor geçildi",
+        "plain_summary": plain_summary,
         "score": score,
         "atr": atr
     }
