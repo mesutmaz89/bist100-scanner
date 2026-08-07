@@ -364,6 +364,21 @@
               </div>
             </div>
             ${sig.plain_summary ? `<p class="text-sm text-gray-300 mb-3 leading-relaxed">${sig.plain_summary}</p>` : ''}
+
+            ${(stopPct !== null && targetPct !== null) ? `
+            <div class="mb-3">
+              <div class="flex h-2.5 rounded-full overflow-hidden bg-[#0d1117] border border-[#30363d]">
+                <div class="bg-gradient-to-r from-red-500/70 to-red-500/30" style="width:${Math.abs(stopPct) / (Math.abs(stopPct) + targetPct) * 100}%"></div>
+                <div class="w-[2px] bg-white/80"></div>
+                <div class="bg-gradient-to-r from-emerald-500/30 to-emerald-500/70" style="width:${targetPct / (Math.abs(stopPct) + targetPct) * 100}%"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-gray-500 mt-1">
+                <span class="text-red-400">${stopPct.toFixed(1)}%</span>
+                <span class="text-gray-500">giriş</span>
+                <span class="text-emerald-400">+${targetPct.toFixed(1)}%</span>
+              </div>
+            </div>` : ''}
+
             <div class="grid grid-cols-4 gap-2 text-center bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] mb-3">
               <div><p class="text-[10px] text-gray-400">Giriş</p><p class="font-semibold text-white text-sm">${formatMoney(sig.entry)}</p></div>
               <div><p class="text-[10px] text-gray-400">Stop</p><p class="font-semibold text-red-400 text-sm">${formatMoney(sig.stop_loss)}</p><p class="text-[10px] text-red-400/70">${stopPct !== null ? stopPct.toFixed(1) + '%' : ''}</p></div>
@@ -484,6 +499,24 @@
                 <p class="font-bold text-amber-400 text-xs">${formatMoney(alert.stop_loss || alert.trailing_stop_price)} / ${formatMoney(alert.take_profit)}</p>
               </div>
             </div>
+
+            ${(() => {
+              const stopV = safeNum(alert.stop_loss || alert.trailing_stop_price);
+              const targetV = safeNum(alert.take_profit);
+              if (stopV === null || targetV === null || currentPrice === null || targetV === stopV) return '';
+              const posPct = Math.max(0, Math.min(100, (currentPrice - stopV) / (targetV - stopV) * 100));
+              return `
+                <div class="mb-3">
+                  <div class="relative h-2.5 rounded-full bg-gradient-to-r from-red-500/40 via-[#30363d] to-emerald-500/40 border border-[#30363d]">
+                    <div class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 border-[#0d1117] shadow" style="left:calc(${posPct}% - 6px)"></div>
+                  </div>
+                  <div class="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <span class="text-red-400">Stop</span>
+                    <span>Güncel Konum</span>
+                    <span class="text-emerald-400">Hedef</span>
+                  </div>
+                </div>`;
+            })()}
 
             <div class="flex justify-between items-center text-xs text-gray-400">
               <p>${alert.reasoning || 'Analiz verisi yükleniyor...'}</p>
